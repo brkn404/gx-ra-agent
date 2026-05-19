@@ -4,7 +4,7 @@
 **Pilot API:** `http://192.168.68.54:8081` · tenant `pilot-1`  
 **Repos:** [GX-RA](https://github.com/brkn404/GX-RA) (API/product) · [gx-ra-agent](https://github.com/brkn404/gx-ra-agent) (host agent + demos)
 
-> **Note:** The local `GX-RA` tree on `spark` may be missing source/docs (only Docker image + data volume remain). This inventory reflects the **running pilot stack** and the **gx-ra-agent** repo. Restore GX-RA from git if you need full monorepo docs (`gxra-mvp-roadmap.md`, product overview, etc.).
+> **Note:** GX-RA source restored on `spark` from Docker (2026-05-20): `gxra/`, `docker-compose.yml`, lighthouse scripts, MVP docs under `docs/`.
 
 ---
 
@@ -76,10 +76,12 @@ All scripts live in **gx-ra-agent** unless noted.
 | `deploy-linux-agent.sh` | Install agent + learn + freeze | ubuntuvmlab01, spark |
 | `gxra_e2e_demo.sh` | Baseline → backup → scan → **ALLOW** → verify | ubuntuvmlab01 ✅ |
 | `simulate-veeam-backup.sh` | `snapshot` + Veeam webhook (with telemetry) | ubuntuvmlab01 ✅ |
-| `tests/test_e2e_pilot.py` | Automated ALLOW path | ubuntuvmlab01 ✅ (2 tests) |
+| `tests/test_e2e_pilot.py` | Automated ALLOW path | ubuntuvmlab01 ✅, WIN-VM ✅ |
+| `tests/test_e2e_deny.py` | Hybrid hash DENY + infected scan DENY | spark ✅ |
+| `gxra_e2e_windows.sh` | Windows entity E2E (`ent-c8b507e0cad4`) | spark ✅ |
 | `run-install.bat` / `install-windows.ps1` | Windows agent deploy | WIN-VM (manual) |
-| **Ransomware lighthouse** (`gxra_ransomware_lighthouse_demo.sh`) | ALLOW + hybrid DENY + scan DENY + export | Was on GX-RA repo; **re-run needs restored script** |
-| **Hybrid smoke** (`gxra_hybrid_demo.sh`) | Single TI DENY | Same |
+| **Ransomware lighthouse** (`GX-RA/scripts/gxra_ransomware_lighthouse_demo.sh`) | ALLOW + hybrid DENY + scan DENY + export | spark ✅ |
+| **Hybrid smoke** (`GX-RA/scripts/gxra_hybrid_demo.sh`) | Single TI DENY | GX-RA repo |
 | Manual `curl` authorize | ALLOW on `veeam-sim-*` without scan | spark ✅ |
 
 ### Demo flow (trusted path — what you show customers)
@@ -115,7 +117,7 @@ Act 4: assurance export ZIP
 |--------------|-----------|----------------|-----------|--------|
 | **ubuntuvmlab01** | `ent-dc373af54c54` | ✅ frozen (4) | ✅ | Primary Linux demo VM |
 | **linux-lab-01** (spark) | `ent-ee15ec9d6569` | ✅ frozen (4) | ✅ | Dev host |
-| **WIN-VM-LAB01** | `ent-c8b507e0cad4` | ✅ frozen (6) | ⚠️ | ALLOW after L2 webhook; early job DENY without |
+| **WIN-VM-LAB01** | `ent-c8b507e0cad4` | ✅ frozen (6) | ✅ | `gxra_e2e_windows.sh` ALLOW path |
 | WIN-VM-LAB01 (duplicate reg) | `ent-9ca6a15a491c` | ? | — | Clean up if unused |
 | lighthouse-* | various | ❌ | ✅ | Demo-only entities from lighthouse script |
 

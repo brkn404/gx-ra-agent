@@ -114,6 +114,10 @@ exit /b 0
 
 ---
 
+## MVP inventory
+
+**What is built vs what the demos prove:** [docs/MVP-INVENTORY.md](docs/MVP-INVENTORY.md)
+
 ## Linux deploy + E2E demo
 
 Fresh Ubuntu VM: see **[docs/UBUNTU-VM-QUICKSTART.md](docs/UBUNTU-VM-QUICKSTART.md)**.

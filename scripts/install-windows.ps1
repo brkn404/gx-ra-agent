@@ -1,10 +1,4 @@
-# GX-RA agent — one-shot Windows install (run inside the VM in PowerShell).
-# Usage:
-#   Set-ExecutionPolicy Bypass -Scope Process -Force
-#   irm https://raw.githubusercontent.com/brkn404/gx-ra-agent/main/scripts/install-windows.ps1 | iex
-# Save script, then:
-#   .\install-windows.ps1 -ApiUrl http://192.168.68.54:8081 -TenantId pilot-1 -Hostname win-vm3
-
+# GX-RA agent — Windows install
 param(
     [string]$ApiUrl = $env:GXRA_API_URL,
     [string]$TenantId = $env:GXRA_TENANT_ID,
@@ -15,8 +9,17 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-
 function Write-Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
+
+function Invoke-GxraPy {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
+    if ($script:PyLauncher) {
+        & py -3.12 @Args
+    } else {
+        & $script:PythonExe @Args
+    }
+    if ($LASTEXITCODE -ne 0) { throw "Python failed: py @Args" }
+}
 
 if (-not $ApiUrl) { $ApiUrl = Read-Host "GX-RA API URL (e.g. http://192.168.68.54:8081)" }
 if (-not $TenantId) { $TenantId = Read-Host "Tenant ID (e.g. pilot-1)" }
@@ -27,32 +30,53 @@ $env:GXRA_API_URL = $ApiUrl
 $env:GXRA_TENANT_ID = $TenantId
 
 Write-Step "Checking GX-RA API at $ApiUrl"
-try {
-    $health = Invoke-RestMethod "$ApiUrl/health" -TimeoutSec 10
-    Write-Host "  API OK: $($health.status)" -ForegroundColor Green
-} catch {
-    Write-Host "  Cannot reach API. From this VM, fix network/firewall first." -ForegroundColor Red
-    Write-Host "  $_"
-    exit 1
-}
+$health = Invoke-RestMethod "$ApiUrl/health" -TimeoutSec 10
+Write-Host "  API OK: $($health.status)" -ForegroundColor Green
 
 Write-Step "Finding Python 3.10+"
-$py = $null
-foreach ($cmd in @("py -3.12", "py -3.11", "py -3.10", "python3", "python")) {
+$script:PyLauncher = $false
+$script:PythonExe = $null
+
+if (Get-Command py -ErrorAction SilentlyContinue) {
     try {
-        $ver = Invoke-Expression "$cmd -c `"import sys; print(sys.version_info[:2])`"" 2>$null
-        if ($ver -match "3\.1[0-9]") { $py = $cmd; break }
+        & py -3.12 -c "import sys" 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { $script:PyLauncher = $true }
     } catch {}
 }
-if (-not $py) {
-    Write-Host "  Python not found. Installing Python 3.12 via winget..." -ForegroundColor Yellow
+
+if (-not $script:PyLauncher) {
+    foreach ($name in @("python", "python3")) {
+        $cmd = Get-Command $name -ErrorAction SilentlyContinue
+        if (-not $cmd) { continue }
+        try {
+            & $cmd.Source -c "import sys; exit(0 if sys.version_info[:2] >= (3,10) else 1)" 2>$null | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                $script:PythonExe = $cmd.Source
+                break
+            }
+        } catch {}
+    }
+}
+
+if (-not $script:PyLauncher -and -not $script:PythonExe) {
+    Write-Host "  Installing Python 3.12 via winget..." -ForegroundColor Yellow
     winget install -e --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements
-    $py = "py -3.12"
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
+                [System.Environment]::GetEnvironmentVariable("Path", "User")
+    foreach ($name in @("python", "python3")) {
+        $cmd = Get-Command $name -ErrorAction SilentlyContinue
+        if ($cmd) { $script:PythonExe = $cmd.Source; break }
+    }
+    if (Get-Command py -ErrorAction SilentlyContinue) { $script:PyLauncher = $true }
+}
+
+if (-not $script:PyLauncher -and -not $script:PythonExe) {
+    throw "Python 3.10+ not found. Re-open PowerShell after winget install, or install from python.org"
 }
 
 Write-Step "Creating venv at C:\gxra-agent-venv"
 $venv = "C:\gxra-agent-venv"
-& $py -m venv $venv
+Invoke-GxraPy -m venv $venv
 $pip = "$venv\Scripts\pip.exe"
 $gxra = "$venv\Scripts\gxra-agent.exe"
 
@@ -64,17 +88,10 @@ Write-Step "Registering host $Hostname"
 & $gxra register --hostname $Hostname
 
 if (-not $SkipLearn) {
-    Write-Step "Learning baseline ($LearnCount samples, ${LearnInterval}s apart) then freeze"
+    Write-Step "Learning baseline ($LearnCount x ${LearnInterval}s) then freeze"
     & $gxra learn --start-learning --interval $LearnInterval --count $LearnCount --freeze
 }
 
 Write-Step "Status"
 & $gxra status
-
-$config = "$env:APPDATA\gxra-agent\config.json"
-Write-Host "`nDone." -ForegroundColor Green
-Write-Host "  Config: $config"
-Write-Host "  Add entity_id from config to Veeam backup-complete webhook."
-Write-Host "  Re-open PowerShell and run:"
-Write-Host "    C:\gxra-agent-venv\Scripts\Activate.ps1"
-Write-Host "    gxra-agent snapshot"
+Write-Host "`nDone. Config: $env:APPDATA\gxra-agent\config.json" -ForegroundColor Green

@@ -29,8 +29,19 @@ if ! command -v python3 >/dev/null; then
   exit 1
 fi
 
+_venv_broken() {
+  [[ -d .venv ]] && [[ ! -x .venv/bin/pip ]] && return 0
+  [[ -d .venv ]] && [[ ! -x .venv/bin/python3 ]] && return 0
+  return 1
+}
+
+if _venv_broken; then
+  echo "Removing broken .venv (common after installing python3-venv later)..."
+  rm -rf .venv
+fi
+
 if [[ ! -d .venv ]]; then
-  if ! python3 -m venv .venv 2>/dev/null; then
+  if ! python3 -m venv .venv; then
     echo "python3-venv required. Run:" >&2
     echo "  sudo apt install -y python3-venv" >&2
     exit 1
@@ -39,6 +50,11 @@ fi
 
 PIP="${ROOT}/.venv/bin/pip"
 GXRA="${ROOT}/.venv/bin/gxra-agent"
+
+if [[ ! -x "$PIP" ]]; then
+  echo "Virtualenv failed: $PIP missing. Run: rm -rf .venv && $0 $*" >&2
+  exit 1
+fi
 
 "${PIP}" install -q --upgrade pip
 "${PIP}" install -q -e ".[dev]"

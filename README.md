@@ -124,7 +124,9 @@ pytest -q
 ./scripts/build_agent.sh
 ```
 
-Source is synced from the main GX-RA monorepo (`gxra/agent/`). See `scripts/sync_from_gxra.sh` in [GX-RA](https://github.com/brkn404/GX-RA).
+Source is synced from the main GX-RA monorepo (`gxra/agent/`). In GX-RA run:
+
+`./scripts/sync_agent_to_gxra_agent_repo.sh`
 
 ---
 

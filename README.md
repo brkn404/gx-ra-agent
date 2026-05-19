@@ -114,6 +114,21 @@ exit /b 0
 
 ---
 
+## Linux deploy + E2E demo
+
+```bash
+export GXRA_API_URL=http://192.168.68.54:8081
+export GXRA_TENANT_ID=pilot-1
+./scripts/deploy-linux-agent.sh linux-lab-01
+./scripts/gxra_e2e_demo.sh
+```
+
+Automated test (API must be running):
+
+```bash
+GXRA_API_BASE=http://192.168.68.54:8081 pytest tests/test_e2e_pilot.py -v
+```
+
 ## Development
 
 ```bash

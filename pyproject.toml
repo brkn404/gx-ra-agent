@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gx-ra-agent"
+version = "0.1.0"
+description = "GX-RA host agent — baseline learning and telemetry for recovery assurance"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "Knight InfoTek" }]
+keywords = ["gx-ra", "backup", "recovery", "security", "agent"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: System Administrators",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Security",
+  "Topic :: System :: Monitoring",
+]
+dependencies = [
+  "httpx>=0.27.0",
+  "psutil>=5.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0.0",
+]
+build = [
+  "pyinstaller>=6.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/brkn404/gx-ra-agent"
+Repository = "https://github.com/brkn404/gx-ra-agent"
+Issues = "https://github.com/brkn404/gx-ra-agent/issues"
+
+[project.scripts]
+gxra-agent = "gxra.agent.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gxra*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -116,11 +116,15 @@ exit /b 0
 
 ## Linux deploy + E2E demo
 
+Fresh Ubuntu VM: see **[docs/UBUNTU-VM-QUICKSTART.md](docs/UBUNTU-VM-QUICKSTART.md)**.
+
 ```bash
+cd ~/gx-ra-agent   # not ~/kit/gx-ra-agent unless that path exists
 export GXRA_API_URL=http://192.168.68.54:8081
 export GXRA_TENANT_ID=pilot-1
-./scripts/deploy-linux-agent.sh linux-lab-01
+./scripts/deploy-linux-agent.sh my-hostname
 ./scripts/gxra_e2e_demo.sh
+.venv/bin/pytest tests/test_e2e_pilot.py -v
 ```
 
 Automated test (API must be running):

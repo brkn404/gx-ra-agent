@@ -12,7 +12,13 @@ HOST_LABEL="${GXRA_DEMO_HOST:-linux-lab}"
 if [[ -z "${ENTITY_ID:-}" ]] && [[ -f "$CFG" ]]; then
   ENTITY_ID=$(python3 -c "import json; print(json.load(open('$CFG'))['entity_id'])")
 fi
-ENTITY_ID="${ENTITY_ID:?Set ENTITY_ID or deploy agent (gxra-agent register)}"
+if [[ -z "${ENTITY_ID:-}" ]]; then
+  echo "No entity_id. On this host run first:" >&2
+  echo "  cd $(cd "$(dirname "$0")/.." && pwd)" >&2
+  echo "  export GXRA_API_URL=${BASE} GXRA_TENANT_ID=${TENANT}" >&2
+  echo "  ./scripts/deploy-linux-agent.sh $(hostname -s)" >&2
+  exit 1
+fi
 
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║  GX-RA E2E demo — trusted Linux path                          ║"

@@ -4,7 +4,8 @@
 from pathlib import Path
 
 block_cipher = None
-root = Path(SPECPATH).resolve().parents[1]
+# SPECPATH is the directory containing this spec (packaging/), not the file path.
+root = Path(SPECPATH).resolve().parent
 
 a = Analysis(
     [str(root / "gxra" / "agent" / "__main__.py")],

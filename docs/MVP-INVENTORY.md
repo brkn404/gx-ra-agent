@@ -78,7 +78,7 @@ All scripts live in **gx-ra-agent** unless noted.
 | `simulate-veeam-backup.sh` | `snapshot` + Veeam webhook (with telemetry) | ubuntuvmlab01 ✅ |
 | `tests/test_e2e_pilot.py` | Automated ALLOW path | ubuntuvmlab01 ✅, WIN-VM ✅ |
 | `tests/test_e2e_deny.py` | Hybrid hash DENY + infected scan DENY | spark ✅ |
-| `gxra_e2e_windows.sh` | Windows entity E2E (`ent-c8b507e0cad4`) | spark ✅ |
+| `gxra_e2e_windows.sh` | Windows entity E2E (`ent-2272a0680155`) | WIN-VM-LAB01 |
 | `run-install.bat` / `install-windows.ps1` | Windows agent deploy | WIN-VM (manual) |
 | **Ransomware lighthouse** (`GX-RA/scripts/gxra_ransomware_lighthouse_demo.sh`) | ALLOW + hybrid DENY + scan DENY + export | spark ✅ |
 | **Hybrid smoke** (`GX-RA/scripts/gxra_hybrid_demo.sh`) | Single TI DENY | GX-RA repo |
@@ -117,7 +117,7 @@ Act 4: assurance export ZIP
 |--------------|-----------|----------------|-----------|--------|
 | **ubuntuvmlab01** | `ent-dc373af54c54` | ✅ frozen (4) | ✅ | Primary Linux demo VM |
 | **linux-lab-01** (spark) | `ent-ee15ec9d6569` | ✅ frozen (4) | ✅ | Dev host |
-| **WIN-VM-LAB01** | `ent-c8b507e0cad4` | ✅ frozen (6) | ✅ | `gxra_e2e_windows.sh` ALLOW path |
+| **WIN-VM-LAB01** | `ent-2272a0680155` | ✅ frozen (4+) | ✅ | `gxra_e2e_windows.sh` ALLOW path |
 | WIN-VM-LAB01 (duplicate reg) | `ent-9ca6a15a491c` | ? | — | Clean up if unused |
 | lighthouse-* | various | ❌ | ✅ | Demo-only entities from lighthouse script |
 
@@ -206,7 +206,7 @@ curl -s -X POST http://192.168.68.54:8081/v1/recovery/authorize \
 ## 10. Next engineering priorities
 
 1. **Restore GX-RA repo** (source + `gxra_ransomware_lighthouse_demo.sh` + MVP docs).  
-2. **Windows E2E** — `ENTITY_ID=ent-c8b507e0cad4 ./scripts/gxra_e2e_demo.sh` from a host with API access.  
+2. **Windows E2E** — `docs/WINDOWS-VM-QUICKSTART.md` · `install-windows.ps1 -PilotEntity` · `./scripts/gxra_e2e_windows.sh`  
 3. **pytest DENY path** — hybrid hash + infected scan (mirror lighthouse).  
 4. **Phase 2** — GenomeX optional in compose; drift thresholds on authorize.  
 5. **Phase 3** — webhook HMAC + single deployment runbook PDF/md.

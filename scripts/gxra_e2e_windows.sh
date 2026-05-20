@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# E2E on Windows — uses agent config entity_id, or pilot default ent-c8b507e0cad4.
+# E2E on Windows — uses agent config entity_id, or pilot default ent-2272a0680155 (WIN-VM-LAB01).
 set -euo pipefail
 export GXRA_DEMO_HOST="${GXRA_DEMO_HOST:-win-vm-lab01}"
 export GXRA_API_BASE="${GXRA_API_BASE:-${GXRA_API_URL:-http://192.168.68.54:8081}}"
@@ -23,7 +23,7 @@ export GXRA_AGENT_CONFIG="${CFG:-${GXRA_AGENT_CONFIG:-}}"
 if [[ -z "${ENTITY_ID:-}" && -n "${CFG}" ]]; then
   ENTITY_ID="$(GXRA_CFG_PATH="${CFG}" python3 -c 'import json, os; print(json.load(open(os.environ["GXRA_CFG_PATH"]))["entity_id"])')"
 fi
-export ENTITY_ID="${ENTITY_ID:-ent-c8b507e0cad4}"
+export ENTITY_ID="${ENTITY_ID:-ent-2272a0680155}"
 
 if [[ -x "${ROOT}/.venv/Scripts/gxra-agent.exe" ]]; then
   export PATH="${ROOT}/.venv/Scripts:${PATH}"

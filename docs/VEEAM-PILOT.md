@@ -54,7 +54,7 @@ Map your pilot VMs:
 
 | VM | entity_id |
 |----|-----------|
-| WIN-VM-LAB01 | `ent-c8b507e0cad4` |
+| WIN-VM-LAB01 | `ent-2272a0680155` |
 | ubuntuvmlab01 | `ent-dc373af54c54` |
 
 ---
@@ -81,7 +81,7 @@ Map your pilot VMs:
 
 ```powershell
 $body = @{
-  entity_id = "ent-c8b507e0cad4"
+  entity_id = "ent-2272a0680155"
   job_id = "veeam-$($env:COMPUTERNAME)-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
   finished_at = [int][double]::Parse((Get-Date -UFormat %s))
   repository_path = "veeam://repo/job"

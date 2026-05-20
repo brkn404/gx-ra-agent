@@ -3,10 +3,22 @@ param(
     [string]$ApiUrl = $env:GXRA_API_URL,
     [string]$TenantId = $env:GXRA_TENANT_ID,
     [string]$Hostname = $env:COMPUTERNAME,
+    [string]$EntityId = "",
+    [switch]$PilotEntity,
     [switch]$SkipLearn,
     [int]$LearnInterval = 60,
     [int]$LearnCount = 6
 )
+
+# Pilot fleet: WIN-VM-LAB01 (baseline already frozen on API)
+$PilotEntityId = "ent-2272a0680155"
+if ($PilotEntity) {
+    $EntityId = $PilotEntityId
+    $SkipLearn = $true
+    if (-not $Hostname -or $Hostname -eq $env:COMPUTERNAME) {
+        $Hostname = "WIN-VM-LAB01"
+    }
+}
 
 $ErrorActionPreference = "Stop"
 function Write-Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
@@ -84,12 +96,20 @@ Write-Step "Installing gx-ra-agent from GitHub"
 & $pip install --upgrade pip
 & $pip install "gx-ra-agent @ git+https://github.com/brkn404/gx-ra-agent.git"
 
-Write-Step "Registering host $Hostname"
-& $gxra register --hostname $Hostname
+if ($EntityId) {
+    Write-Step "Binding to existing entity $EntityId (no new registration)"
+    & $gxra bind $EntityId --hostname $Hostname --device-did "did:gx:host-WIN-VM-LAB01"
+} else {
+    Write-Step "Registering host $Hostname"
+    & $gxra register --hostname $Hostname
+}
 
 if (-not $SkipLearn) {
     Write-Step "Learning baseline ($LearnCount x ${LearnInterval}s) then freeze"
     & $gxra learn --start-learning --interval $LearnInterval --count $LearnCount --freeze
+} elseif ($EntityId) {
+    Write-Step "Skipping learn (pilot entity — confirm frozen baseline)"
+    & $gxra status
 }
 
 Write-Step "Status"

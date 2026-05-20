@@ -8,23 +8,27 @@ Host agent for **[GX-RA](https://github.com/brkn404/GX-RA)** (GenomeX Recovery A
 
 ## Quick install
 
-### Windows (PowerShell) — pip from GitHub
+### Windows (PowerShell)
+
+**Pilot VM (WIN-VM-LAB01, entity `ent-2272a0680155`):** full steps in [`docs/WINDOWS-VM-QUICKSTART.md`](docs/WINDOWS-VM-QUICKSTART.md)
 
 ```powershell
-py -3.12 -m venv C:\gxra-agent-venv
-C:\gxra-agent-venv\Scripts\Activate.ps1
-pip install "gx-ra-agent @ git+https://github.com/brkn404/gx-ra-agent.git"
-
+git clone https://github.com/brkn404/gx-ra-agent.git C:\gx-ra-agent
+cd C:\gx-ra-agent
 $env:GXRA_API_URL = "http://192.168.68.54:8081"
 $env:GXRA_TENANT_ID = "pilot-1"
-
-gxra-agent info
-gxra-agent register --hostname win-vm3
-gxra-agent learn --start-learning --interval 60 --count 6 --freeze
-gxra-agent status
+.\scripts\install-windows.ps1 -PilotEntity   # bind fleet entity; skip learn (frozen on API)
 ```
 
-Config: `%APPDATA%\gxra-agent\config.json` (contains `entity_id` for Veeam webhooks).
+**New host** (creates a new `ent-…`):
+
+```powershell
+.\scripts\install-windows.ps1 -Hostname MY-WIN-HOST
+```
+
+**E2E (Git Bash):** `./scripts/gxra_e2e_windows.sh` or `scripts\gxra_e2e_windows.bat`
+
+Config: `%APPDATA%\gxra-agent\config.json`
 
 ### Linux
 

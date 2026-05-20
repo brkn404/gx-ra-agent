@@ -18,6 +18,42 @@ def _device_did(hostname: str) -> str:
     return f"did:gx:host-{hostname}"
 
 
+def cmd_bind(args: argparse.Namespace) -> int:
+    """Attach this host to an existing API entity (pilot fleet — no new registration)."""
+    import os
+
+    hostname = args.hostname or socket.gethostname()
+    cfg = AgentConfig.load()
+    cfg.api_url = (
+        args.api_url
+        or cfg.api_url
+        or os.environ.get("GXRA_API_URL", "http://127.0.0.1:8081")
+    )
+    cfg.tenant_id = (
+        args.tenant_id or cfg.tenant_id or os.environ.get("GXRA_TENANT_ID", "pilot-1")
+    )
+    cfg.entity_id = args.entity_id
+    cfg.hostname = hostname
+    cfg.device_did = args.device_did or _device_did(hostname)
+    cfg.genome_profile = args.genome_profile or cfg.genome_profile or "agent"
+
+    client = GxraApiClient(cfg)
+    bl = client.get_baseline(cfg.entity_id)
+    path = cfg.save()
+    print(
+        f"Bound to entity {cfg.entity_id} (baseline={bl.get('status')}, "
+        f"samples={bl.get('sample_count')})"
+    )
+    print(f"Config saved to {path}")
+    if bl.get("status") != "frozen":
+        print(
+            "Baseline not frozen — run: gxra-agent learn --start-learning "
+            "--interval 60 --count 4 --freeze",
+            file=sys.stderr,
+        )
+    return 0
+
+
 def cmd_register(args: argparse.Namespace) -> int:
     hostname = args.hostname or socket.gethostname()
     cfg = AgentConfig.load()
@@ -178,6 +214,15 @@ def main(argv: list[str] | None = None) -> int:
         help="GX-RA entity type (default: auto from virt detection — virtual_machine, server, workload)",
     )
     p_reg.set_defaults(func=cmd_register)
+
+    p_bind = sub.add_parser("bind", help="Use existing entity_id (pilot VM — skip register)")
+    p_bind.add_argument("entity_id", help="Existing ent-… from API / runbook")
+    p_bind.add_argument("--hostname", help="Local host label (default: socket hostname)")
+    p_bind.add_argument("--device-did", help="Optional DID override")
+    p_bind.add_argument("--api-url", help="GX-RA API base URL")
+    p_bind.add_argument("--tenant-id", help="Tenant id")
+    p_bind.add_argument("--genome-profile", default="agent")
+    p_bind.set_defaults(func=cmd_bind)
 
     p_sl = sub.add_parser("start-learning", help="Start baseline learning window on API")
     p_sl.set_defaults(func=cmd_start_learning)

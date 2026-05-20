@@ -21,7 +21,7 @@ CFG="$(_resolve_agent_config || true)"
 export GXRA_AGENT_CONFIG="${CFG:-${GXRA_AGENT_CONFIG:-}}"
 
 if [[ -z "${ENTITY_ID:-}" && -n "${CFG}" ]]; then
-  ENTITY_ID="$(python3 -c "import json; print(json.load(open('${CFG}'))['entity_id'])")"
+  ENTITY_ID="$(GXRA_CFG_PATH="${CFG}" python3 -c 'import json, os; print(json.load(open(os.environ["GXRA_CFG_PATH"]))["entity_id"])')"
 fi
 export ENTITY_ID="${ENTITY_ID:-ent-c8b507e0cad4}"
 

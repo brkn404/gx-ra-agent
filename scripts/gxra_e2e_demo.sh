@@ -20,7 +20,7 @@ export GXRA_AGENT_CONFIG="${CFG:-${GXRA_AGENT_CONFIG:-}}"
 HOST_LABEL="${GXRA_DEMO_HOST:-linux-lab}"
 
 if [[ -z "${ENTITY_ID:-}" && -n "${CFG}" ]]; then
-  ENTITY_ID=$(python3 -c "import json; print(json.load(open('${CFG}'))['entity_id'])")
+  ENTITY_ID=$(GXRA_CFG_PATH="${CFG}" python3 -c 'import json, os; print(json.load(open(os.environ["GXRA_CFG_PATH"]))["entity_id"])')
 fi
 if [[ -z "${ENTITY_ID:-}" ]]; then
   echo "No entity_id. On this host run first:" >&2

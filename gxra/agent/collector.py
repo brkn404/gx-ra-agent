@@ -1,4 +1,4 @@
-"""Host signal collection → 51D agent genome (re-export for backward compatibility)."""
+"""Host signal collection → 64D agent genome (re-export)."""
 
 from gxra.agent.collectors.common import collect_host_genome, genome_digest
 

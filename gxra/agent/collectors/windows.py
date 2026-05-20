@@ -8,6 +8,7 @@ import sys
 from typing import Optional
 
 from gxra.agent.collectors.common import PlatformSignals, apply_virt_to_signals
+from gxra.agent.collectors.security_posture import collect_windows_posture, merge_category_scores
 from gxra.agent.platform import PlatformInfo
 from gxra.agent.virtualization import detect_virt_windows
 
@@ -60,4 +61,7 @@ def collect(plat: PlatformInfo) -> PlatformSignals:
         load_1m=None,
         extra={"edition": sys.getwindowsversion().platform if sys.platform == "win32" else ""},
     )
-    return apply_virt_to_signals(sig, detect_virt_windows())
+    sig = apply_virt_to_signals(sig, detect_virt_windows())
+    if sys.platform == "win32":
+        merge_category_scores(sig, collect_windows_posture())
+    return sig

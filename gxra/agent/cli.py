@@ -72,7 +72,7 @@ def cmd_learn(args: argparse.Namespace) -> int:
     interval = args.interval
     print(f"Pushing telemetry every {interval}s ({count} samples) for {cfg.entity_id}")
     for i in range(count):
-        genome = collect_host_genome(51)
+        genome = collect_host_genome(64)
         resp = client.push_telemetry(cfg.entity_id, genome, auto_qsba=args.auto_qsba)
         drift = resp.get("drift_from_baseline")
         print(
@@ -94,7 +94,7 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
     if not cfg.entity_id:
         print("Run `gxra-agent register` first", file=sys.stderr)
         return 1
-    genome = collect_host_genome(51)
+    genome = collect_host_genome(64)
     digest = genome_digest(genome)
     client = GxraApiClient(cfg)
     resp = client.push_telemetry(cfg.entity_id, genome, auto_qsba=args.auto_qsba)

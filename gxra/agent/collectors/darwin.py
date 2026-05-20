@@ -8,6 +8,7 @@ import subprocess
 from typing import Optional
 
 from gxra.agent.collectors.common import PlatformSignals, apply_virt_to_signals
+from gxra.agent.collectors.security_posture import collect_darwin_posture, merge_category_scores
 from gxra.agent.platform import PlatformInfo
 from gxra.agent.virtualization import detect_virt_darwin
 
@@ -42,4 +43,6 @@ def collect(plat: PlatformInfo) -> PlatformSignals:
         target=plat.target,
         load_1m=None,
     )
-    return apply_virt_to_signals(sig, detect_virt_darwin())
+    sig = apply_virt_to_signals(sig, detect_virt_darwin())
+    merge_category_scores(sig, collect_darwin_posture())
+    return sig

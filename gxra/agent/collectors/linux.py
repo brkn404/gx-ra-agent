@@ -7,6 +7,7 @@ import socket
 from pathlib import Path
 
 from gxra.agent.collectors.common import PlatformSignals, apply_virt_to_signals
+from gxra.agent.collectors.security_posture import collect_linux_posture, merge_category_scores
 from gxra.agent.platform import PlatformInfo
 from gxra.agent.virtualization import detect_virt_linux
 
@@ -36,4 +37,6 @@ def collect(plat: PlatformInfo) -> PlatformSignals:
         target=plat.target,
         load_1m=_load_1m(),
     )
-    return apply_virt_to_signals(sig, detect_virt_linux())
+    sig = apply_virt_to_signals(sig, detect_virt_linux())
+    merge_category_scores(sig, collect_linux_posture())
+    return sig

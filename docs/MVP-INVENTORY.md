@@ -42,8 +42,8 @@ A lighthouse customer can:
 | Threat intel bundle | ✅ | MalwareBazaar / abuse.ch; offline bundle in volume |
 | Agent install downloads | ✅ | `/agent/*` (when static mounted in image) |
 | Webhook HMAC | ❌ | Not implemented |
-| GenomeX in Docker | ❌ | Default `memory` stub; QSBA often 0 without explicit scores |
-| Baseline drift in authorize | ❌ | Drift computed on telemetry; not gating authorize yet |
+| GenomeX in Docker | ✅ | `GXRA_BEHAVIORAL_BACKEND=genomex`; `/health` → `genomex_bridge` |
+| Baseline drift in authorize | ✅ | `drift_from_baseline` at authorize; env thresholds |
 | Multi-tenant hardening | ❌ | Header-based tenant only |
 
 ### 2.2 Host agent (`gx-ra-agent` repo)
@@ -51,7 +51,7 @@ A lighthouse customer can:
 | Capability | Status | Notes |
 |------------|--------|--------|
 | CLI: register, learn, freeze, snapshot, status | ✅ | |
-| 51D host fingerprint genome | ✅ | Tier 0 MVP collector |
+| 64D semantic RA genome | ✅ | `genome_slots.py` + Tier-1 security posture collectors |
 | Linux / Windows / macOS | ✅ | pip + PyInstaller CI |
 | Virt detection (VMware guest, etc.) | ✅ | |
 | Windows install scripts | ✅ | `install-windows.ps1`, `run-install.bat` |
@@ -168,6 +168,7 @@ See [VEEAM-PILOT.md](./VEEAM-PILOT.md).
 | Doc | Repo | Purpose |
 |-----|------|---------|
 | **MVP-INVENTORY.md** (this file) | gx-ra-agent | Built vs demo inventory |
+| [gxra-product-intent.md](https://github.com/brkn404/GX-RA/blob/main/docs/gxra-product-intent.md) | GX-RA | Product intent — what the system is supposed to do (from strategy PDFs) |
 | [UBUNTU-VM-QUICKSTART.md](./UBUNTU-VM-QUICKSTART.md) | gx-ra-agent | Ubuntu VM agent install |
 | [VEEAM-PILOT.md](./VEEAM-PILOT.md) | gx-ra-agent | Simulate vs real Veeam |
 | README.md | gx-ra-agent | Agent install overview |

@@ -62,9 +62,20 @@ TS=$(date +%s)
 JOB="${HOST_LABEL}-backup-${TS}"
 
 echo ""
-echo "▶ Step 1 — Veeam backup-complete (capture-time genome from baseline)"
-BACKUP=$(curl -sf -X POST "${BASE}/v1/webhooks/veeam/backup-complete" "${HDR[@]}" \
-  -d "{
+# Phase 1.1: GenomeX computes QSBA/BSAL — no manual scores on webhook.
+AUTO_QSBA="${GXRA_E2E_AUTO_QSBA:-true}"
+if [[ "${AUTO_QSBA}" == "true" ]]; then
+  BACKUP_BODY="{
+    \"entity_id\": \"${ENTITY_ID}\",
+    \"job_id\": \"${JOB}\",
+    \"finished_at\": ${TS},
+    \"repository_path\": \"s3://backups/${JOB}\",
+    \"genome\": ${GENOME_JSON},
+    \"auto_qsba\": true
+  }"
+  STEP1_LABEL="Veeam backup-complete (auto_qsba from GenomeX)"
+else
+  BACKUP_BODY="{
     \"entity_id\": \"${ENTITY_ID}\",
     \"job_id\": \"${JOB}\",
     \"finished_at\": ${TS},
@@ -74,7 +85,13 @@ BACKUP=$(curl -sf -X POST "${BASE}/v1/webhooks/veeam/backup-complete" "${HDR[@]}
     \"qsba_score\": 0.08,
     \"bsal_level\": \"L2\",
     \"drift_envelope\": \"acceptable\"
-  }")
+  }"
+  STEP1_LABEL="Veeam backup-complete (manual L2 scores)"
+fi
+
+echo ""
+echo "▶ Step 1 — ${STEP1_LABEL}"
+BACKUP=$(curl -sf -X POST "${BASE}/v1/webhooks/veeam/backup-complete" "${HDR[@]}" -d "${BACKUP_BODY}")
 echo "$BACKUP" | python3 -c "
 import sys,json
 r=json.load(sys.stdin)
@@ -111,6 +128,6 @@ curl -sf "${BASE}/v1/verify/assurance?external_snapshot_id=${JOB}" \
 echo ""
 echo "══════════════════════════════════════════════════════════════"
 echo "  E2E complete — job=${JOB}"
-echo "  Windows entity (compare): ent-c8b507e0cad4 (WIN-VM-LAB01)"
+echo "  Windows entity (compare): ent-2272a0680155 (WIN-VM-LAB01)"
 echo "  Linux entity (this run):  ${ENTITY_ID}"
 echo "══════════════════════════════════════════════════════════════"

@@ -69,7 +69,7 @@ def _new_entity(client: httpx.Client, name: str) -> str:
 
 
 def _backup_with_l2(client: httpx.Client, entity_id: str, job: str, genome: list[float] | None = None):
-    genome = genome or [0.05] * 51
+    genome = genome or [0.05] * 64
     r = client.post(
         "/v1/webhooks/veeam/backup-complete",
         json={
@@ -147,3 +147,50 @@ def test_infected_scan_denies(client: httpx.Client):
     )
     auth.raise_for_status()
     assert auth.json()["decision"] == "DENY"
+
+
+@pytest.mark.live
+def test_baseline_drift_denies(client: httpx.Client):
+    """Frozen baseline vs divergent backup genome → DENY (Phase 1.5)."""
+    eid = _new_entity(client, "deny-drift")
+    client.post(f"/v1/entities/{eid}/behavioral-baseline/start-learning").raise_for_status()
+    stable = [0.0] * 64
+    base_ts = time.time()
+    for i in range(4):
+        client.post(
+            "/v1/telemetry/states",
+            json={
+                "entity_id": eid,
+                "timestamp": base_ts + i,
+                "genome": stable,
+                "auto_qsba": True,
+            },
+        ).raise_for_status()
+    client.post(
+        f"/v1/entities/{eid}/behavioral-baseline/freeze",
+        json={"min_samples": 3},
+    ).raise_for_status()
+
+    job = f"pytest-deny-drift-{int(time.time())}"
+    backup_ts = time.time()
+    divergent = [0.25] * 64
+    client.post(
+        "/v1/webhooks/veeam/backup-complete",
+        json={
+            "entity_id": eid,
+            "job_id": job,
+            "finished_at": backup_ts,
+            "repository_path": f"s3://backups/{job}",
+            "genome": divergent,
+            "auto_qsba": True,
+        },
+    ).raise_for_status()
+
+    auth = client.post(
+        "/v1/recovery/authorize",
+        json={"entity_id": eid, "external_snapshot_id": job},
+    )
+    auth.raise_for_status()
+    body = auth.json()
+    assert body["decision"] == "DENY", body
+    assert body.get("drift_envelope") == "irreversible"

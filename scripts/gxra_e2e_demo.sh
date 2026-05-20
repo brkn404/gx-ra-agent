@@ -47,7 +47,7 @@ st = r.get('status')
 if st != 'frozen':
     print(f\"  ✗ Baseline status is '{st}' for entity ${ENTITY_ID}\", file=sys.stderr)
     print('  Run on this host first (Git Bash):', file=sys.stderr)
-    print('    export GXRA_API_URL=${GXRA_API_BASE} GXRA_TENANT_ID=${TENANT}', file=sys.stderr)
+    print('    export GXRA_API_URL=${BASE} GXRA_TENANT_ID=${TENANT}', file=sys.stderr)
     print('    gxra-agent learn --start-learning --interval 1 --count 4 --freeze', file=sys.stderr)
     print('  Ensure ~/.config/gxra-agent/config.json entity_id matches this demo entity.', file=sys.stderr)
     sys.exit(1)

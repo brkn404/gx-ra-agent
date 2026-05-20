@@ -6,11 +6,21 @@ set -euo pipefail
 BASE="${GXRA_API_BASE:-${GXRA_API_URL:-http://192.168.68.54:8081}}"
 TENANT="${GXRA_TENANT_ID:-pilot-1}"
 HDR=(-H "X-Tenant-Id: ${TENANT}" -H "Content-Type: application/json")
-CFG="${GXRA_AGENT_CONFIG:-$HOME/.config/gxra-agent/config.json}"
+_resolve_agent_config() {
+  if [[ -n "${GXRA_AGENT_CONFIG:-}" && -f "${GXRA_AGENT_CONFIG}" ]]; then
+    echo "${GXRA_AGENT_CONFIG}"
+  elif [[ -n "${APPDATA:-}" && -f "${APPDATA}/gxra-agent/config.json" ]]; then
+    echo "${APPDATA}/gxra-agent/config.json"
+  elif [[ -f "${HOME}/.config/gxra-agent/config.json" ]]; then
+    echo "${HOME}/.config/gxra-agent/config.json"
+  fi
+}
+CFG="$(_resolve_agent_config || true)"
+export GXRA_AGENT_CONFIG="${CFG:-${GXRA_AGENT_CONFIG:-}}"
 HOST_LABEL="${GXRA_DEMO_HOST:-linux-lab}"
 
-if [[ -z "${ENTITY_ID:-}" ]] && [[ -f "$CFG" ]]; then
-  ENTITY_ID=$(python3 -c "import json; print(json.load(open('$CFG'))['entity_id'])")
+if [[ -z "${ENTITY_ID:-}" && -n "${CFG}" ]]; then
+  ENTITY_ID=$(python3 -c "import json; print(json.load(open('${CFG}'))['entity_id'])")
 fi
 if [[ -z "${ENTITY_ID:-}" ]]; then
   echo "No entity_id. On this host run first:" >&2

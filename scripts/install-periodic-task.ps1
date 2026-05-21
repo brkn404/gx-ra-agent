@@ -51,9 +51,11 @@ $ApiUrl = $ApiUrl.TrimEnd("/")
 $psCommand = "`$env:GXRA_API_URL='$ApiUrl'; `$env:GXRA_TENANT_ID='$TenantId'; `$env:GXRA_AGENT_TIER_MAX='1'; $GxraCmd"
 $psArgs = "-NoProfile -ExecutionPolicy Bypass -Command `"$psCommand`""
 $Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $psArgs
-$Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) `
+# RepetitionDuration cannot be [TimeSpan]::MaxValue (Task Scheduler rejects P99999999D…).
+# Daily trigger + 24h repetition = every IntervalMin indefinitely.
+$Trigger = New-ScheduledTaskTrigger -Daily -At "00:05" `
     -RepetitionInterval (New-TimeSpan -Minutes $IntervalMin) `
-    -RepetitionDuration ([TimeSpan]::MaxValue)
+    -RepetitionDuration (New-TimeSpan -Hours 24)
 $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Force | Out-Null
 

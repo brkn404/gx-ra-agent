@@ -47,10 +47,10 @@ if (-not $ApiUrl) { $ApiUrl = Read-Host "GX-RA API URL (e.g. http://192.168.68.5
 if (-not $TenantId) { $TenantId = Read-Host "Tenant ID (e.g. pilot-1)" }
 $ApiUrl = $ApiUrl.TrimEnd("/")
 
-$Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument @(
-    "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-    "`$env:GXRA_API_URL='$ApiUrl'; `$env:GXRA_TENANT_ID='$TenantId'; `$env:GXRA_AGENT_TIER_MAX='1'; $GxraCmd"
-)
+# ScheduledTasks -Argument must be one string (not string[]).
+$psCommand = "`$env:GXRA_API_URL='$ApiUrl'; `$env:GXRA_TENANT_ID='$TenantId'; `$env:GXRA_AGENT_TIER_MAX='1'; $GxraCmd"
+$psArgs = "-NoProfile -ExecutionPolicy Bypass -Command `"$psCommand`""
+$Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $psArgs
 $Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) `
     -RepetitionInterval (New-TimeSpan -Minutes $IntervalMin) `
     -RepetitionDuration ([TimeSpan]::MaxValue)

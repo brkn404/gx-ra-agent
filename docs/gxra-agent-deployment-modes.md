@@ -11,7 +11,9 @@ The agent is a **CLI**, not a background service. Choose how often it runs based
 | **C. Learn loop** | Install / re-baseline only | Process exits after `--count` samples | Initial 64D baseline — **not** 24/7 |
 | **D. Always-on daemon** | Not shipped | Would be continuous | Only if you add live alerting later |
 
-**Recommendation for GX-RA pilot:** **A only** on protected VMs, plus **C once** at install (`deploy-linux-agent.sh`). Add **B** only on hosts where you want drift visible between backups.
+**Product default (PDF-aligned):** **A + B** — **standard** baseline at install (`deploy-linux-agent.sh` or `--product-default`) plus **30 min** periodic snapshot. **Quick** baseline (`--quick-baseline`) is for labs only.
+
+See GX-RA: `docs/gxra-continuous-watch-plan.md` · `docs/gxra-agent-baseline-profiles.md`.
 
 ## Why not run all the time?
 

@@ -30,9 +30,11 @@ Creates a **new** `ent-…` on the API (do not use `bind` unless reusing an exis
 export GXRA_API_URL=http://192.168.68.54:8081
 export GXRA_TENANT_ID=pilot-1
 
-./scripts/deploy-linux-agent.sh rpi-lab-01
-# optional periodic drift every 30 min:
-# ./scripts/deploy-linux-agent.sh rpi-lab-01 --periodic-30m
+# Product default (standard ~24h baseline + 30m timer):
+./scripts/deploy-linux-agent.sh rpi-lab-01 --product-default
+
+# Pilot-fast only:
+# ./scripts/deploy-linux-agent.sh rpi-lab-01 --quick-baseline
 ```
 
 ## 4. Verify

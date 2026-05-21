@@ -7,21 +7,50 @@
 #   cd ~/gx-ra-agent
 #   export GXRA_API_URL=http://192.168.68.54:8081 GXRA_TENANT_ID=pilot-1
 #   ./scripts/deploy-linux-agent.sh my-linux-host
+#   ./scripts/deploy-linux-agent.sh my-host --product-default   # standard baseline + 30m timer
+#   ./scripts/deploy-linux-agent.sh my-host --quick-baseline    # pilot lab only (~20s)
 set -euo pipefail
 
 API="${GXRA_API_URL:-http://192.168.68.54:8081}"
 TENANT="${GXRA_TENANT_ID:-pilot-1}"
 PERIODIC_30M=0
+QUICK_BASELINE=0
+PRODUCT_DEFAULT=0
 ARGS=()
 for arg in "$@"; do
   case "$arg" in
     --periodic-30m) PERIODIC_30M=1 ;;
+    --quick-baseline) QUICK_BASELINE=1 ;;
+    --product-default) PRODUCT_DEFAULT=1; PERIODIC_30M=1 ;;
     *) ARGS+=("$arg") ;;
   esac
 done
 HOST="${ARGS[0]:-$(hostname -s)}"
-INTERVAL="${GXRA_LEARN_INTERVAL:-5}"
-COUNT="${GXRA_LEARN_COUNT:-4}"
+
+# Baseline profile: quick (pilot) | standard (product default) | extended
+# See GX-RA docs/gxra-agent-baseline-profiles.md
+PROFILE="${GXRA_BASELINE_PROFILE:-standard}"
+if [[ "$QUICK_BASELINE" -eq 1 ]]; then
+  PROFILE=quick
+fi
+case "$PROFILE" in
+  quick)
+    INTERVAL="${GXRA_LEARN_INTERVAL:-5}"
+    COUNT="${GXRA_LEARN_COUNT:-4}"
+    MIN_SAMPLES="${GXRA_LEARN_MIN_SAMPLES:-3}"
+    ;;
+  extended)
+    INTERVAL="${GXRA_LEARN_INTERVAL:-3600}"
+    COUNT="${GXRA_LEARN_COUNT:-168}"
+    MIN_SAMPLES="${GXRA_LEARN_MIN_SAMPLES:-24}"
+    ;;
+  standard|*)
+    INTERVAL="${GXRA_LEARN_INTERVAL:-300}"
+    COUNT="${GXRA_LEARN_COUNT:-48}"
+    MIN_SAMPLES="${GXRA_LEARN_MIN_SAMPLES:-12}"
+    PROFILE=standard
+    ;;
+esac
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -72,8 +101,11 @@ export GXRA_API_URL="$API" GXRA_TENANT_ID="$TENANT"
 echo "API: $API"
 curl -sf "$API/health" | python3 -m json.tool
 
+echo "Baseline profile: ${PROFILE} (interval=${INTERVAL}s count=${COUNT} min_samples=${MIN_SAMPLES})"
+echo "  Docs: GX-RA docs/gxra-agent-baseline-profiles.md · gxra-continuous-watch-plan.md"
+
 "${GXRA}" register --hostname "$HOST"
-"${GXRA}" learn --start-learning --interval "$INTERVAL" --count "$COUNT" --freeze --min-samples 3
+"${GXRA}" learn --start-learning --interval "$INTERVAL" --count "$COUNT" --freeze --min-samples "$MIN_SAMPLES"
 "${GXRA}" status
 
 if [[ "$PERIODIC_30M" -eq 1 ]]; then

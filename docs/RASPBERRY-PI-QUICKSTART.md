@@ -41,6 +41,7 @@ export GXRA_TENANT_ID=pilot-1
 .venv/bin/gxra-agent info
 .venv/bin/gxra-agent status
 ./scripts/benchmark-agent-overhead.sh
+# optional: sudo apt install -y time  (script works without it)
 ```
 
 Expect `target: linux-arm64` in `info`.

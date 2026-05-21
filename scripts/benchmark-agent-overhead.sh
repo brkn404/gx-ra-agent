@@ -28,11 +28,31 @@ echo "host: $(hostname -s)  tier_max=${TIER}  repeats=${REPEATS}"
 "$GXRA" info 2>/dev/null | "$PY" -c "import sys,json; d=json.load(sys.stdin); print('  target:', d.get('target'), 'categories:', len(d.get('signal_categories_in_scope',[])))" 2>/dev/null || true
 echo ""
 
+# Portable timing (Kali/minimal images often lack GNU time in /usr/bin/time).
 _time_one() {
   local label="$1"
   shift
-  # shellcheck disable=SC2068
-  /usr/bin/time -f "${label} elapsed=%e s  user=%U  sys=%S  maxrss=%M KB" "$@" 2>&1
+  "$PY" -c '
+import resource
+import subprocess
+import sys
+import time
+
+label, args = sys.argv[1], sys.argv[2:]
+t0 = time.perf_counter()
+proc = subprocess.run(args)
+elapsed = time.perf_counter() - t0
+child_usage = getattr(resource, "RUSAGE_CHILD", None) or getattr(
+    resource, "RUSAGE_CHILDREN", resource.RUSAGE_SELF
+)
+ru = resource.getrusage(child_usage)
+# Linux: ru_maxrss in KB; macOS would need /1024 — Pi/Kali are Linux.
+print(
+    f"{label} elapsed={elapsed:.2f}s  exit={proc.returncode}  "
+    f"maxrss_kb={ru.ru_maxrss}"
+)
+sys.exit(proc.returncode)
+' "$label" "$@"
 }
 
 echo "--- Tier ${TIER}: collect_host_genome (×${REPEATS}) ---"

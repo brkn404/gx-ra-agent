@@ -11,7 +11,15 @@ set -euo pipefail
 
 API="${GXRA_API_URL:-http://192.168.68.54:8081}"
 TENANT="${GXRA_TENANT_ID:-pilot-1}"
-HOST="${1:-$(hostname -s)}"
+PERIODIC_30M=0
+ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --periodic-30m) PERIODIC_30M=1 ;;
+    *) ARGS+=("$arg") ;;
+  esac
+done
+HOST="${ARGS[0]:-$(hostname -s)}"
 INTERVAL="${GXRA_LEARN_INTERVAL:-5}"
 COUNT="${GXRA_LEARN_COUNT:-4}"
 
@@ -67,6 +75,20 @@ curl -sf "$API/health" | python3 -m json.tool
 "${GXRA}" register --hostname "$HOST"
 "${GXRA}" learn --start-learning --interval "$INTERVAL" --count "$COUNT" --freeze --min-samples 3
 "${GXRA}" status
+
+if [[ "$PERIODIC_30M" -eq 1 ]]; then
+  echo ""
+  echo "Installing 30-minute snapshot timer..."
+  ENTITY_ID="$("${GXRA}" status 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('entity_id',''))" 2>/dev/null || true)"
+  if [[ -z "$ENTITY_ID" ]]; then
+    ENTITY_ID="$(python3 -c "import json; print(json.load(open('${HOME}/.config/gxra-agent/config.json'))['entity_id'])" 2>/dev/null || true)"
+  fi
+  if [[ -n "$ENTITY_ID" ]]; then
+    "${ROOT}/scripts/install-periodic-timer.sh" --entity-id "$ENTITY_ID"
+  else
+    echo "Skip timer: could not resolve entity_id — run install-periodic-timer.sh manually." >&2
+  fi
+fi
 
 echo ""
 echo "Run E2E demo:"

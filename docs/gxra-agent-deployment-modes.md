@@ -85,6 +85,16 @@ ExecStart=/home/kit/gxra-agent/.venv/bin/gxra-agent snapshot
 
 Enable: `sudo systemctl enable --now gxra-agent-snapshot.timer`
 
+**One-command install (after deploy):**
+
+```bash
+./scripts/install-periodic-timer.sh --entity-id ent-dc373af54c54
+# or at deploy time:
+./scripts/deploy-linux-agent.sh ubuntuvmlab01 --periodic-30m
+```
+
+**Console:** Entity → Overview → check *Run agent snapshot every 30 minutes* for copy-paste install commands.
+
 ## Veeam pre-freeze (production path)
 
 ```bash

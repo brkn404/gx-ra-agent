@@ -10,6 +10,15 @@
 #
 set -euo pipefail
 
+case "$(uname -s 2>/dev/null || echo unknown)" in
+  MINGW*|MSYS*|CYGWIN*)
+    echo "install-periodic-timer.sh is for Linux (systemd) only." >&2
+    echo "On Windows, open PowerShell and run:" >&2
+    echo "  .\\scripts\\install-periodic-task.ps1" >&2
+    exit 1
+    ;;
+esac
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENTITY_ID="${GXRA_ENTITY_ID:-}"
 REMOVE=0

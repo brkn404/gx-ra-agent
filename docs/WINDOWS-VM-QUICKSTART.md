@@ -42,13 +42,26 @@ Config file: `%APPDATA%\gxra-agent\config.json`
 
 ### 1b. Continuous watch (30 min scheduled task)
 
+**Use PowerShell** (not Git Bash). Do **not** run `install-periodic-timer.sh` — that is Linux systemd only.
+
 After baseline is **frozen**, install the periodic snapshot task (tier 1 collectors, low overhead):
 
 ```powershell
+cd C:\Users\brkni\gx-ra-agent   # your clone path
 $env:GXRA_API_URL = "http://192.168.68.54:8081"
 $env:GXRA_TENANT_ID = "pilot-1"
 .\scripts\install-periodic-task.ps1
 Get-ScheduledTask -TaskName GXRA-Agent-Snapshot | Get-ScheduledTaskInfo
+```
+
+One-off test (before waiting for the timer):
+
+```powershell
+$env:GXRA_API_URL = "http://192.168.68.54:8081"
+$env:GXRA_TENANT_ID = "pilot-1"
+$env:GXRA_AGENT_TIER_MAX = "1"
+C:\gxra-agent-venv\Scripts\gxra-agent.exe snapshot
+C:\gxra-agent-venv\Scripts\gxra-agent.exe status
 ```
 
 Verify from spark: `GET /v1/entities/ent-2272a0680155/watch/status` → `watch_state: active`.

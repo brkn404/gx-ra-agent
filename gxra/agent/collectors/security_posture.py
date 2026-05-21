@@ -52,13 +52,30 @@ def merge_category_scores(signals: PlatformSignals, scores: Dict[str, float]) ->
     signals.extra["category_scores"] = existing
 
 
+def _linux_posture_in_scope(category: str) -> bool:
+    from gxra.agent.platform import detect_platform
+    from gxra.agent.signals.strategy import is_category_in_scope, max_tier_from_env
+
+    plat = detect_platform()
+    return is_category_in_scope(
+        category,  # type: ignore[arg-type]
+        plat.target,
+        max_tier=max_tier_from_env(),
+    )
+
+
 def collect_linux_posture() -> Dict[str, float]:
     scores: Dict[str, float] = {}
-    scores["backup_integrity"] = _linux_backup_integrity()
-    scores["lolbin_activity"] = _linux_lolbin_activity()
-    scores["security_product"] = _linux_security_product()
-    scores["auth_anomaly"] = _linux_auth_anomaly()
-    scores["volume_activity"] = _linux_volume_activity()
+    if _linux_posture_in_scope("backup_integrity"):
+        scores["backup_integrity"] = _linux_backup_integrity()
+    if _linux_posture_in_scope("lolbin_activity"):
+        scores["lolbin_activity"] = _linux_lolbin_activity()
+    if _linux_posture_in_scope("security_product"):
+        scores["security_product"] = _linux_security_product()
+    if _linux_posture_in_scope("auth_anomaly"):
+        scores["auth_anomaly"] = _linux_auth_anomaly()
+    if _linux_posture_in_scope("volume_activity"):
+        scores["volume_activity"] = _linux_volume_activity()
     return scores
 
 

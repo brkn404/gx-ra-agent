@@ -80,7 +80,7 @@ mkdir -p /tmp/gxra-lab-churn
 for i in $(seq 1 200); do
   echo "lab-$i" >"/tmp/gxra-lab-churn/file_$i.dat"
 done
-echo "  [volume lab] 200 files in /tmp/gxra-lab-churn (may not affect 64D until collectors extended)"
+echo "  [volume lab] 200 files in /tmp/gxra-lab-churn → volume_activity slots"
 
 # 3) Security product — only if clamav installed
 if systemctl is-active clamav-daemon >/dev/null 2>&1; then

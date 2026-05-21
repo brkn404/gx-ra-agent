@@ -106,6 +106,20 @@ Invoke-RestMethod "$env:GXRA_API_URL/health"
 
 ---
 
+## Deployment and overhead
+
+The agent is **not** a daemon. Default pilot mode: **one `snapshot` per backup** (Veeam pre-freeze). Optional periodic timer for drift between backups.
+
+See [`docs/gxra-agent-deployment-modes.md`](docs/gxra-agent-deployment-modes.md) and run:
+
+```bash
+./scripts/benchmark-agent-overhead.sh
+```
+
+| Variable | Purpose |
+|----------|---------|
+| `GXRA_AGENT_TIER_MAX` | `0`–`2` — skip heavier collectors at lower tiers (`2` = full) |
+
 ## Veeam pre-freeze (optional)
 
 ```bat

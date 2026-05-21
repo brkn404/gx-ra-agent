@@ -29,6 +29,29 @@ def test_volume_activity_scales_with_file_count():
     assert score >= 0.25
 
 
+def test_tier_max_1_skips_volume_activity(monkeypatch):
+    monkeypatch.setenv("GXRA_AGENT_TIER_MAX", "1")
+    with patch(
+        "gxra.agent.collectors.security_posture._linux_backup_integrity",
+        return_value=0.05,
+    ), patch(
+        "gxra.agent.collectors.security_posture._linux_lolbin_activity",
+        return_value=0.35,
+    ), patch(
+        "gxra.agent.collectors.security_posture._linux_security_product",
+        return_value=0.4,
+    ), patch(
+        "gxra.agent.collectors.security_posture._linux_auth_anomaly",
+        return_value=0.05,
+    ), patch(
+        "gxra.agent.collectors.security_posture._linux_volume_activity",
+        return_value=0.99,
+    ) as vol:
+        scores = collect_linux_posture()
+    vol.assert_not_called()
+    assert "volume_activity" not in scores
+
+
 def test_collect_linux_posture_includes_new_categories():
     with patch(
         "gxra.agent.collectors.security_posture._linux_backup_integrity",

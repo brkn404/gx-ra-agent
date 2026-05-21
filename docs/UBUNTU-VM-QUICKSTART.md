@@ -39,7 +39,17 @@ export GXRA_TENANT_ID=pilot-1
 ./scripts/gxra_e2e_demo.sh
 ```
 
-## 5. Synthetic drift lab (collector testing)
+## 5. Benchmark overhead (optional)
+
+```bash
+cd ~/gx-ra-agent
+./scripts/benchmark-agent-overhead.sh
+GXRA_AGENT_TIER_MAX=1 ./scripts/benchmark-agent-overhead.sh
+```
+
+See [`gxra-agent-deployment-modes.md`](gxra-agent-deployment-modes.md) for when to use backup-only vs periodic snapshots.
+
+## 6. Synthetic drift lab (collector testing)
 
 ```bash
 cd ~/gx-ra-agent
@@ -50,7 +60,7 @@ export GXRA_API_URL=http://192.168.68.54:8081 GXRA_TENANT_ID=pilot-1
 ./.venv/bin/gxra-agent status
 ```
 
-## 6. Automated test (use venv pytest, not system pytest)
+## 7. Automated test (use venv pytest, not system pytest)
 
 ```bash
 cd ~/gx-ra-agent

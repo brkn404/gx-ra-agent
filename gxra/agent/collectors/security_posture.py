@@ -34,8 +34,13 @@ _LOLBIN_NAMES = frozenset(
 )
 
 _LINUX_LOLBIN_RE = re.compile(
-    r"(powershell|pwsh|vssadmin|wbadmin|bcdedit|mshta|wscript|cscript|certutil)",
+    r"(powershell|pwsh|vssadmin|wbadmin|bcdedit|mshta|wscript|cscript|certutil|"
+    r"regsvr32|rundll32|wmic)",
     re.I,
+)
+
+_LINUX_LOLBIN_BASENAMES = frozenset(
+    name.lower().removesuffix(".exe") for name in _LOLBIN_NAMES
 )
 
 
@@ -52,6 +57,8 @@ def collect_linux_posture() -> Dict[str, float]:
     scores["backup_integrity"] = _linux_backup_integrity()
     scores["lolbin_activity"] = _linux_lolbin_activity()
     scores["security_product"] = _linux_security_product()
+    scores["auth_anomaly"] = _linux_auth_anomaly()
+    scores["volume_activity"] = _linux_volume_activity()
     return scores
 
 
@@ -103,6 +110,7 @@ def _linux_backup_integrity() -> float:
 
 
 def _linux_lolbin_activity() -> float:
+    hits = 0
     try:
         out = subprocess.run(
             ["ps", "-eo", "comm="],
@@ -110,20 +118,110 @@ def _linux_lolbin_activity() -> float:
             text=True,
             timeout=8,
         )
-        if out.returncode != 0:
-            return 0.0
-        hits = sum(
-            1
-            for line in out.stdout.splitlines()
-            if _LINUX_LOLBIN_RE.search(line.strip())
+        if out.returncode == 0:
+            for line in out.stdout.splitlines():
+                comm = line.strip().lower()
+                if not comm:
+                    continue
+                base = comm.split("/")[-1]
+                if base in _LINUX_LOLBIN_BASENAMES or _LINUX_LOLBIN_RE.search(comm):
+                    hits += 1
+        out_args = subprocess.run(
+            ["ps", "-eo", "args="],
+            capture_output=True,
+            text=True,
+            timeout=8,
         )
-        if hits == 0:
-            return 0.05
-        if hits <= 2:
-            return 0.35
-        return min(1.0, 0.35 + hits * 0.15)
+        if out_args.returncode == 0:
+            for line in out_args.stdout.splitlines():
+                if _LINUX_LOLBIN_RE.search(line):
+                    hits += 1
     except (OSError, subprocess.SubprocessError, FileNotFoundError):
         return 0.0
+    if hits == 0:
+        return 0.05
+    if hits <= 2:
+        return 0.35
+    return min(1.0, 0.35 + hits * 0.15)
+
+
+def _linux_auth_anomaly() -> float:
+    """Failed SSH / sudo auth in the last hour (lightweight journal or auth.log)."""
+    failures = 0
+    try:
+        out = subprocess.run(
+            [
+                "journalctl",
+                "-u",
+                "ssh",
+                "--since",
+                "1 hour ago",
+                "--no-pager",
+                "-q",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if out.returncode == 0:
+            failures = sum(
+                1
+                for line in out.stdout.splitlines()
+                if "Failed password" in line or "Failed publickey" in line
+            )
+    except (OSError, subprocess.SubprocessError, FileNotFoundError):
+        pass
+    if failures == 0:
+        from pathlib import Path
+
+        auth_log = Path("/var/log/auth.log")
+        if auth_log.is_file():
+            try:
+                tail = auth_log.read_text(errors="replace").splitlines()[-500:]
+                failures = sum(
+                    1
+                    for line in tail
+                    if "Failed password" in line or "Failed publickey" in line
+                )
+            except OSError:
+                failures = 0
+    if failures == 0:
+        return 0.05
+    if failures < 5:
+        return 0.35
+    return min(1.0, 0.4 + failures * 0.08)
+
+
+def _linux_volume_activity() -> float:
+    """Recent file churn under /tmp (lab + ransomware-style volume signals)."""
+    try:
+        out = subprocess.run(
+            [
+                "find",
+                "/tmp",
+                "-maxdepth",
+                "3",
+                "-type",
+                "f",
+                "-mmin",
+                "-30",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=12,
+        )
+        if out.returncode != 0:
+            return 0.05
+        count = sum(1 for line in out.stdout.splitlines() if line.strip())
+        if count < 10:
+            return 0.05
+        if count < 50:
+            return 0.25
+        if count < 200:
+            return 0.45
+        return min(1.0, 0.5 + count / 500.0)
+    except (OSError, subprocess.SubprocessError, FileNotFoundError):
+        return 0.05
 
 
 def _linux_security_product() -> float:

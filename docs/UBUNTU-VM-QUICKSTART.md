@@ -39,7 +39,18 @@ export GXRA_TENANT_ID=pilot-1
 ./scripts/gxra_e2e_demo.sh
 ```
 
-## 5. Automated test (use venv pytest, not system pytest)
+## 5. Synthetic drift lab (collector testing)
+
+```bash
+cd ~/gx-ra-agent
+export GXRA_API_URL=http://192.168.68.54:8081 GXRA_TENANT_ID=pilot-1
+./scripts/linux-synthetic-drift-lab.sh
+# Manual snapshot (venv — not on default PATH):
+./.venv/bin/gxra-agent snapshot
+./.venv/bin/gxra-agent status
+```
+
+## 6. Automated test (use venv pytest, not system pytest)
 
 ```bash
 cd ~/gx-ra-agent

@@ -7,7 +7,9 @@
 #
 # What moves today (gxra-agent collectors):
 #   - runtime_soft: load, CPU%, memory (psutil)
-#   - lolbin_activity: processes whose comm matches recovery-tool names
+#   - lolbin_activity: comm/args match certutil, wscript, etc.
+#   - volume_activity: /tmp file churn (find -mmin -30)
+#   - auth_anomaly: failed SSH in journal or auth.log
 #   - security_product: clamav/falcon/mdatp/esets/sophos systemd active
 #   - backup_integrity: snapper timer or LVM snapshots
 #   - runtime_soft: hour/dow (time of snapshot)

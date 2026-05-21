@@ -40,6 +40,19 @@ C:\gxra-agent-venv\Scripts\gxra-agent.exe status
 
 Config file: `%APPDATA%\gxra-agent\config.json`
 
+### 1b. Continuous watch (30 min scheduled task)
+
+After baseline is **frozen**, install the periodic snapshot task (tier 1 collectors, low overhead):
+
+```powershell
+$env:GXRA_API_URL = "http://192.168.68.54:8081"
+$env:GXRA_TENANT_ID = "pilot-1"
+.\scripts\install-periodic-task.ps1
+Get-ScheduledTask -TaskName GXRA-Agent-Snapshot | Get-ScheduledTaskInfo
+```
+
+Verify from spark: `GET /v1/entities/ent-2272a0680155/watch/status` → `watch_state: active`.
+
 ### 2. E2E demo (Git Bash)
 
 ```bash

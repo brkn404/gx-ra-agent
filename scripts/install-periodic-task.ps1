@@ -52,10 +52,10 @@ $psCommand = "`$env:GXRA_API_URL='$ApiUrl'; `$env:GXRA_TENANT_ID='$TenantId'; `$
 $psArgs = "-NoProfile -ExecutionPolicy Bypass -Command `"$psCommand`""
 $Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $psArgs
 # RepetitionDuration cannot be [TimeSpan]::MaxValue (Task Scheduler rejects P99999999D…).
-# Daily trigger + 24h repetition = every IntervalMin indefinitely.
-$Trigger = New-ScheduledTaskTrigger -Daily -At "00:05" `
+# Once + 30d repetition: first run in ~3 min, then every IntervalMin for 30 days (re-run installer to renew).
+$Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) `
     -RepetitionInterval (New-TimeSpan -Minutes $IntervalMin) `
-    -RepetitionDuration (New-TimeSpan -Hours 24)
+    -RepetitionDuration (New-TimeSpan -Days 30)
 $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Force | Out-Null
 

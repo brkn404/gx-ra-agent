@@ -30,7 +30,9 @@ $env:GXRA_TENANT_ID = "pilot-1"
 
 Config: `%APPDATA%\gxra-agent\config.json`
 
-### Linux
+### Linux / Raspberry Pi (ARM64)
+
+Pi OS and Ubuntu ARM: see [`docs/RASPBERRY-PI-QUICKSTART.md`](docs/RASPBERRY-PI-QUICKSTART.md).
 
 ```bash
 python3 -m venv ~/.venv/gxra-agent

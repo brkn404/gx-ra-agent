@@ -27,6 +27,8 @@ CAPTURE_TELEMETRY="${GXRA_TIMEWARP_CAPTURE_TELEMETRY:-1}"
 TARGET_KIND="${GXRA_TIMEWARP_TARGET_KIND:-auto}"
 KILL_ORIGINAL_ON_RESTORE="${GXRA_TIMEWARP_KILL_ORIGINAL:-0}"
 RESTORE_WAIT_SEC="${GXRA_TIMEWARP_RESTORE_WAIT_SEC:-10}"
+CRIU_LOG_LEVEL="${GXRA_TIMEWARP_CRIU_LOG_LEVEL:-4}"
+CRIU_LOG_PID="${GXRA_TIMEWARP_CRIU_LOG_PID:-1}"
 
 _sudo_user_home() {
   if [[ -n "${SUDO_USER:-}" ]]; then
@@ -48,6 +50,22 @@ _check_linux() {
   fi
 }
 
+_cfg_path() {
+  local cfg_path="${GXRA_AGENT_CONFIG:-}"
+  local sudo_home=""
+  sudo_home="$(_sudo_user_home)"
+  if [[ -z "$cfg_path" && -n "${ROOT:-}" && -f "$ROOT/.gxra-agent-config.json" ]]; then
+    cfg_path="$ROOT/.gxra-agent-config.json"
+  fi
+  if [[ -z "$cfg_path" && -n "$sudo_home" && -f "$sudo_home/.config/gxra-agent/config.json" ]]; then
+    cfg_path="$sudo_home/.config/gxra-agent/config.json"
+  fi
+  if [[ -z "$cfg_path" && -f "$HOME/.config/gxra-agent/config.json" ]]; then
+    cfg_path="$HOME/.config/gxra-agent/config.json"
+  fi
+  echo "$cfg_path"
+}
+
 _resolve_agent_bin() {
   if [[ -n "$GXRA_AGENT_BIN" && -x "$GXRA_AGENT_BIN" ]]; then
     echo "$GXRA_AGENT_BIN"
@@ -55,14 +73,21 @@ _resolve_agent_bin() {
   fi
   local sudo_home=""
   sudo_home="$(_sudo_user_home)"
-  if [[ -n "$sudo_home" && -x "$sudo_home/gx-ra-agent/.venv/bin/gxra-agent" ]]; then
-    echo "$sudo_home/gx-ra-agent/.venv/bin/gxra-agent"
-    return
-  fi
-  if [[ -x "$ROOT/.venv/bin/gxra-agent" ]]; then
-    echo "$ROOT/.venv/bin/gxra-agent"
-    return
-  fi
+  local candidates=(
+    "${VIRTUAL_ENV:-}/bin/gxra-agent"
+    "$ROOT/.venv/bin/gxra-agent"
+    "$PWD/.venv/bin/gxra-agent"
+    "$sudo_home/.venv/bin/gxra-agent"
+    "$sudo_home/gx-ra-agent/.venv/bin/gxra-agent"
+    "$sudo_home/.local/bin/gxra-agent"
+  )
+  local candidate=""
+  for candidate in "${candidates[@]}"; do
+    if [[ -n "$candidate" && -x "$candidate" ]]; then
+      echo "$candidate"
+      return
+    fi
+  done
   if command -v gxra-agent >/dev/null 2>&1; then
     command -v gxra-agent
     return
@@ -71,14 +96,8 @@ _resolve_agent_bin() {
 }
 
 _read_cfg_json() {
-  local cfg_path="${GXRA_AGENT_CONFIG:-}"
-  if [[ -z "$cfg_path" ]]; then
-    local sudo_home=""
-    sudo_home="$(_sudo_user_home)"
-    if [[ -n "$sudo_home" && -f "$sudo_home/.config/gxra-agent/config.json" ]]; then
-      cfg_path="$sudo_home/.config/gxra-agent/config.json"
-    fi
-  fi
+  local cfg_path=""
+  cfg_path="$(_cfg_path)"
   export GXRA_TIMEWARP_CFG_PATH="${cfg_path:-}"
   "$PY_BIN" - <<'PY'
 import json, os
@@ -185,18 +204,77 @@ print(h.hexdigest())
 PY
 }
 
+_write_diag_report() {
+  local out_path="$1"
+  {
+    echo "timestamp: $(date -Is)"
+    echo "criu_bin: $CRIU_BIN"
+    echo "criu_version:"
+    "$CRIU_BIN" --version || true
+    echo ""
+    echo "criu_check:"
+    "$CRIU_BIN" check || true
+    echo ""
+    echo "recent_dmesg:"
+    dmesg | tail -n 120 || true
+  } >"$out_path" 2>&1
+}
+
+_print_log_excerpt() {
+  local log_base="$1"
+  local matched=0
+  local file=""
+  shopt -s nullglob
+  for file in "$log_base"*; do
+    [[ -f "$file" ]] || continue
+    matched=1
+    echo "--- $(basename "$file") ---" >&2
+    sed -n '1,160p' "$file" >&2 || true
+  done
+  shopt -u nullglob
+  if [[ $matched -eq 0 ]]; then
+    echo "No CRIU logs found matching ${log_base}*" >&2
+  fi
+}
+
 _capture_telemetry() {
   local agent_bin="$1"
+  local cfg_path="$2"
+  local log_path="$3"
   if [[ "$CAPTURE_TELEMETRY" != "1" ]]; then
+    echo "status: disabled by GXRA_TIMEWARP_CAPTURE_TELEMETRY" >"$log_path"
     echo ""
     return 0
   fi
   if [[ -z "$agent_bin" ]]; then
+    echo "status: gxra-agent binary not found under sudo" >"$log_path"
+    echo "hint: set GXRA_AGENT_BIN explicitly if needed" >>"$log_path"
+    echo ""
+    return 0
+  fi
+  if [[ -z "$cfg_path" ]]; then
+    echo "status: gxra-agent config not found under sudo" >"$log_path"
+    echo "hint: set GXRA_AGENT_CONFIG explicitly if needed" >>"$log_path"
+    echo "agent_bin: $agent_bin" >>"$log_path"
     echo ""
     return 0
   fi
   local out
-  out="$("$agent_bin" snapshot 2>/dev/null || true)"
+  {
+    echo "agent_bin: $agent_bin"
+    echo "cfg_path: $cfg_path"
+    echo "working_dir: $ROOT"
+    echo ""
+  } >"$log_path"
+  out="$(GXRA_AGENT_CONFIG="$cfg_path" "$agent_bin" snapshot 2>>"$log_path" || true)"
+  if [[ -n "$out" ]]; then
+    {
+      echo "snapshot_stdout:"
+      echo "$out"
+    } >>"$log_path"
+  else
+    echo "snapshot_stdout: <empty>" >>"$log_path"
+  fi
   echo "$out"
 }
 
@@ -290,6 +368,8 @@ capture_mode() {
   local images_dir="$run_dir/images"
   local state_file="$run_dir/live-state.json"
   local criu_log="$run_dir/criu-dump.log"
+  local telemetry_log="$run_dir/gxra-snapshot.log"
+  local dump_diag="$run_dir/criu-dump-diagnostics.txt"
   mkdir -p "$images_dir"
 
   local pid=""
@@ -309,15 +389,36 @@ capture_mode() {
 
   local agent_bin=""
   agent_bin="$(_resolve_agent_bin)"
+  local cfg_path=""
+  cfg_path="$(_cfg_path)"
   local telemetry_out=""
-  telemetry_out="$(_capture_telemetry "$agent_bin")"
+  telemetry_out="$(_capture_telemetry "$agent_bin" "$cfg_path" "$telemetry_log")"
 
+  local criu_log_args=("-v${CRIU_LOG_LEVEL}")
+  if [[ "$CRIU_LOG_PID" == "1" ]]; then
+    criu_log_args+=(--log-pid)
+  fi
+
+  set +e
   "$CRIU_BIN" dump \
     -t "$pid" \
     -D "$images_dir" \
     --shell-job \
     --leave-running \
+    "${criu_log_args[@]}" \
     -o "$criu_log"
+  local dump_rc=$?
+  set -e
+
+  if [[ $dump_rc -ne 0 ]]; then
+    _write_diag_report "$dump_diag"
+    echo "=== Time-Warp capture failed ===" >&2
+    echo "run_dir: $run_dir" >&2
+    echo "dump_log: $criu_log*" >&2
+    echo "diagnostics: $dump_diag" >&2
+    _print_log_excerpt "$criu_log"
+    exit "$dump_rc"
+  fi
 
   local digest
   digest="$(_compute_dir_digest "$images_dir")"
@@ -332,7 +433,7 @@ capture_mode() {
   if [[ -n "$telemetry_out" ]]; then
     echo "gxra_snapshot: $telemetry_out"
   else
-    echo "gxra_snapshot: skipped (no gxra-agent config/bin or disabled)"
+    echo "gxra_snapshot: unavailable (see $telemetry_log)"
   fi
   echo ""
   echo "Next:"
@@ -352,6 +453,7 @@ restore_mode() {
   local images_dir="$run_dir/images"
   local restore_log="$run_dir/criu-restore.log"
   local manifest_path="$run_dir/timewarp-manifest.json"
+  local restore_diag="$run_dir/criu-restore-diagnostics.txt"
   [[ -d "$images_dir" ]] || {
     echo "Missing images dir: $images_dir" >&2
     exit 1
@@ -378,28 +480,33 @@ restore_mode() {
     fi
   fi
 
+  local criu_log_args=("-v${CRIU_LOG_LEVEL}")
+  if [[ "$CRIU_LOG_PID" == "1" ]]; then
+    criu_log_args+=(--log-pid)
+  fi
+
   set +e
   "$CRIU_BIN" restore \
     -D "$images_dir" \
     --shell-job \
+    "${criu_log_args[@]}" \
     -o "$restore_log"
   local restore_rc=$?
   set -e
 
   if [[ $restore_rc -ne 0 ]]; then
+    _write_diag_report "$restore_diag"
     echo "=== Time-Warp restore failed ===" >&2
     echo "run_dir: $run_dir" >&2
-    echo "restore_log: $restore_log" >&2
-    if [[ -f "$restore_log" ]]; then
-      echo "--- restore log excerpt ---" >&2
-      sed -n '1,120p' "$restore_log" >&2
-    fi
+    echo "restore_log: $restore_log*" >&2
+    echo "diagnostics: $restore_diag" >&2
+    _print_log_excerpt "$restore_log"
     exit "$restore_rc"
   fi
 
   echo "=== Time-Warp restore succeeded ==="
   echo "run_dir: $run_dir"
-  echo "restore_log: $restore_log"
+  echo "restore_log: $restore_log*"
   echo "Inspect the restored process state via the target state file or process list."
 }
 

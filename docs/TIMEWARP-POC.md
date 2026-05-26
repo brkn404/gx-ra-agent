@@ -95,8 +95,11 @@ sudo ./scripts/timewarp-criu-poc.sh capture <pid>
 /tmp/gxra-timewarp-poc/<run-id>/
 ├── images/                  # CRIU checkpoint images
 ├── live-state.json          # demo target state (if using bundled target)
-├── criu-dump.log
-├── criu-restore.log         # after restore
+├── criu-dump.log*           # CRIU dump logs (`--log-pid` may add suffixes)
+├── criu-dump-diagnostics.txt
+├── criu-restore.log*        # after restore (`--log-pid` may add suffixes)
+├── criu-restore-diagnostics.txt
+├── gxra-snapshot.log        # gxra-agent resolution/snapshot diagnostics
 ├── target.stdout.log
 ├── target.stderr.log
 └── timewarp-manifest.json   # assurance-linked metadata
@@ -139,6 +142,29 @@ sudo ./scripts/timewarp-criu-poc.sh restore /tmp/gxra-timewarp-poc/<run-id>
 ```
 
 If restore fails, the script now prints a restore failure summary and the CRIU log tail.
+
+If restore still fails with only a short CRIU fatal line, inspect:
+
+```bash
+sudo sed -n '1,200p' /tmp/gxra-timewarp-poc/<run-id>/criu-restore.log*
+sudo sed -n '1,200p' /tmp/gxra-timewarp-poc/<run-id>/criu-restore-diagnostics.txt
+```
+
+## Assurance-link troubleshooting
+
+If capture reports `gxra_snapshot: unavailable`, inspect:
+
+```bash
+sudo sed -n '1,200p' /tmp/gxra-timewarp-poc/<run-id>/gxra-snapshot.log
+```
+
+You can also force the exact agent binary/config under `sudo`:
+
+```bash
+sudo GXRA_AGENT_BIN=/home/<user>/gx-ra-agent/.venv/bin/gxra-agent \
+     GXRA_AGENT_CONFIG=/home/<user>/.config/gxra-agent/config.json \
+     ./scripts/timewarp-criu-poc.sh capture
+```
 
 ## Practical caveats
 

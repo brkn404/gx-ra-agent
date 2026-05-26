@@ -146,7 +146,7 @@ Linux-only CRIU proof scaffold (checkpoint + restore + GX-RA state link):
 - `sudo ./scripts/timewarp-criu-poc.sh capture`
 - `sudo GXRA_TIMEWARP_KILL_ORIGINAL=1 ./scripts/timewarp-criu-poc.sh restore /tmp/gxra-timewarp-poc/<run-id>`
 
-The PoC now prefers a tiny C demo target when `cc` is available and will refuse restore if the original PID is still alive unless you explicitly allow the script to stop it.
+The PoC now prefers a tiny C demo target when `cc` is available, emits verbose CRIU diagnostics into the run directory, and will refuse restore if the original PID is still alive unless you explicitly allow the script to stop it.
 
 ## Linux deploy + E2E demo
 

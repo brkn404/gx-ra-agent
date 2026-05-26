@@ -24,6 +24,15 @@ TIMEWARP_BLOB_MB="${TIMEWARP_BLOB_MB:-8}"
 TIMEWARP_TICK_SEC="${TIMEWARP_TICK_SEC:-1.0}"
 GXRA_AGENT_BIN="${GXRA_AGENT_BIN:-}"
 CAPTURE_TELEMETRY="${GXRA_TIMEWARP_CAPTURE_TELEMETRY:-1}"
+TARGET_KIND="${GXRA_TIMEWARP_TARGET_KIND:-auto}"
+KILL_ORIGINAL_ON_RESTORE="${GXRA_TIMEWARP_KILL_ORIGINAL:-0}"
+RESTORE_WAIT_SEC="${GXRA_TIMEWARP_RESTORE_WAIT_SEC:-10}"
+
+_sudo_user_home() {
+  if [[ -n "${SUDO_USER:-}" ]]; then
+    getent passwd "$SUDO_USER" | "$PY_BIN" -c 'import sys; line=sys.stdin.read().strip(); print(line.split(":")[5] if line else "")'
+  fi
+}
 
 _need_root() {
   if [[ "$(id -u)" != "0" ]]; then
@@ -44,6 +53,12 @@ _resolve_agent_bin() {
     echo "$GXRA_AGENT_BIN"
     return
   fi
+  local sudo_home=""
+  sudo_home="$(_sudo_user_home)"
+  if [[ -n "$sudo_home" && -x "$sudo_home/gx-ra-agent/.venv/bin/gxra-agent" ]]; then
+    echo "$sudo_home/gx-ra-agent/.venv/bin/gxra-agent"
+    return
+  fi
   if [[ -x "$ROOT/.venv/bin/gxra-agent" ]]; then
     echo "$ROOT/.venv/bin/gxra-agent"
     return
@@ -56,16 +71,99 @@ _resolve_agent_bin() {
 }
 
 _read_cfg_json() {
+  local cfg_path="${GXRA_AGENT_CONFIG:-}"
+  if [[ -z "$cfg_path" ]]; then
+    local sudo_home=""
+    sudo_home="$(_sudo_user_home)"
+    if [[ -n "$sudo_home" && -f "$sudo_home/.config/gxra-agent/config.json" ]]; then
+      cfg_path="$sudo_home/.config/gxra-agent/config.json"
+    fi
+  fi
+  export GXRA_TIMEWARP_CFG_PATH="${cfg_path:-}"
   "$PY_BIN" - <<'PY'
 import json, os
 from pathlib import Path
 
-cfg = Path(os.environ.get("GXRA_AGENT_CONFIG", Path.home() / ".config/gxra-agent/config.json"))
+cfg_env = os.environ.get("GXRA_TIMEWARP_CFG_PATH")
+cfg = Path(cfg_env) if cfg_env else Path(os.environ.get("GXRA_AGENT_CONFIG", Path.home() / ".config/gxra-agent/config.json"))
 if not cfg.is_file():
     print("{}")
 else:
     print(cfg.read_text())
 PY
+}
+
+_build_c_target() {
+  local out_bin="$1"
+  command -v cc >/dev/null 2>&1 || return 1
+  cc -O2 -Wall -Wextra "$ROOT/scripts/timewarp_target.c" -o "$out_bin"
+}
+
+_spawn_demo_target() {
+  local run_dir="$1"
+  local state_file="$2"
+  local stdout_log="$3"
+  local stderr_log="$4"
+
+  local chosen="${TARGET_KIND}"
+  local label="$TIMEWARP_LABEL"
+  if [[ "$chosen" == "auto" || "$chosen" == "c" ]]; then
+    local out_bin="$run_dir/timewarp_target_bin"
+    if _build_c_target "$out_bin"; then
+      nohup "$out_bin" \
+        --state-file "$state_file" \
+        --blob-mb "$TIMEWARP_BLOB_MB" \
+        --tick-sec "$TIMEWARP_TICK_SEC" \
+        --label "${label}-c" \
+        >"$stdout_log" 2>"$stderr_log" &
+      echo "$! c"
+      return
+    fi
+    if [[ "$chosen" == "c" ]]; then
+      echo "Failed to build C target; install a C compiler or use GXRA_TIMEWARP_TARGET_KIND=python." >&2
+      exit 1
+    fi
+  fi
+
+  nohup "$PY_BIN" "$ROOT/scripts/timewarp_target.py" \
+    --state-file "$state_file" \
+    --blob-mb "$TIMEWARP_BLOB_MB" \
+    --tick-sec "$TIMEWARP_TICK_SEC" \
+    --label "${label}-python" \
+    >"$stdout_log" 2>"$stderr_log" &
+  echo "$! python"
+}
+
+_read_manifest_field() {
+  local manifest_path="$1"
+  local field="$2"
+  MANIFEST_PATH="$manifest_path" FIELD="$field" "$PY_BIN" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+p = Path(os.environ["MANIFEST_PATH"])
+field = os.environ["FIELD"]
+if not p.is_file():
+    print("")
+else:
+    data = json.loads(p.read_text())
+    print(data.get(field, ""))
+PY
+}
+
+_wait_for_pid_exit() {
+  local pid="$1"
+  local max_wait="$2"
+  local i=0
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 1
+    i=$((i + 1))
+    if (( i >= max_wait )); then
+      return 1
+    fi
+  done
+  return 0
 }
 
 _compute_dir_digest() {
@@ -109,6 +207,7 @@ _write_manifest() {
   local state_file="$4"
   local checkpoint_digest="$5"
   local telemetry_out="$6"
+  local target_kind="$7"
 
   local cfg_json
   cfg_json="$(_read_cfg_json)"
@@ -120,6 +219,7 @@ _write_manifest() {
   TELEMETRY_OUT="$telemetry_out" \
   CFG_JSON="$cfg_json" \
   TIMEWARP_LABEL="$TIMEWARP_LABEL" \
+  TARGET_KIND="$target_kind" \
   "$PY_BIN" - <<'PY'
 import json
 import os
@@ -153,6 +253,7 @@ manifest = {
     "checkpoint_dir": os.environ["CHECKPOINT_DIR"],
     "checkpoint_digest": os.environ["CHECKPOINT_DIGEST"],
     "target_pid": int(os.environ["TARGET_PID"]),
+    "target_kind": os.environ.get("TARGET_KIND", ""),
     "state_file": os.environ["STATE_FILE"],
     "entity_id": cfg.get("entity_id", ""),
     "device_did": cfg.get("device_did", ""),
@@ -192,16 +293,12 @@ capture_mode() {
   mkdir -p "$images_dir"
 
   local pid=""
+  local target_kind=""
   if [[ -n "$ARG" ]]; then
     pid="$ARG"
+    target_kind="external"
   else
-    nohup "$PY_BIN" "$ROOT/scripts/timewarp_target.py" \
-      --state-file "$state_file" \
-      --blob-mb "$TIMEWARP_BLOB_MB" \
-      --tick-sec "$TIMEWARP_TICK_SEC" \
-      --label "$TIMEWARP_LABEL" \
-      >"$run_dir/target.stdout.log" 2>"$run_dir/target.stderr.log" &
-    pid="$!"
+    read -r pid target_kind <<<"$(_spawn_demo_target "$run_dir" "$state_file" "$run_dir/target.stdout.log" "$run_dir/target.stderr.log")"
     sleep 2
   fi
 
@@ -224,11 +321,12 @@ capture_mode() {
 
   local digest
   digest="$(_compute_dir_digest "$images_dir")"
-  _write_manifest "$run_dir/timewarp-manifest.json" "$run_dir" "$pid" "$state_file" "$digest" "$telemetry_out"
+  _write_manifest "$run_dir/timewarp-manifest.json" "$run_dir" "$pid" "$state_file" "$digest" "$telemetry_out" "$target_kind"
 
   echo "=== Time-Warp capture complete ==="
   echo "run_dir: $run_dir"
   echo "target_pid: $pid"
+  echo "target_kind: $target_kind"
   echo "images_dir: $images_dir"
   echo "manifest: $run_dir/timewarp-manifest.json"
   if [[ -n "$telemetry_out" ]]; then
@@ -239,8 +337,8 @@ capture_mode() {
   echo ""
   echo "Next:"
   echo "  1) inspect $state_file and $run_dir/timewarp-manifest.json"
-  echo "  2) stop original PID $pid before restore"
-  echo "  3) sudo $0 restore $run_dir"
+  echo "  2) stop original PID $pid before restore, or use GXRA_TIMEWARP_KILL_ORIGINAL=1"
+  echo "  3) sudo GXRA_TIMEWARP_KILL_ORIGINAL=1 $0 restore $run_dir"
 }
 
 restore_mode() {
@@ -253,17 +351,53 @@ restore_mode() {
   local run_dir="$ARG"
   local images_dir="$run_dir/images"
   local restore_log="$run_dir/criu-restore.log"
+  local manifest_path="$run_dir/timewarp-manifest.json"
   [[ -d "$images_dir" ]] || {
     echo "Missing images dir: $images_dir" >&2
     exit 1
   }
 
+  local target_pid=""
+  target_pid="$(_read_manifest_field "$manifest_path" "target_pid")"
+  if [[ -n "$target_pid" ]] && kill -0 "$target_pid" 2>/dev/null; then
+    if [[ "$KILL_ORIGINAL_ON_RESTORE" == "1" ]]; then
+      echo "Original PID $target_pid still alive; sending SIGTERM..."
+      kill "$target_pid" 2>/dev/null || true
+      if ! _wait_for_pid_exit "$target_pid" "$RESTORE_WAIT_SEC"; then
+        echo "Original PID $target_pid did not exit after ${RESTORE_WAIT_SEC}s; sending SIGKILL..." >&2
+        kill -9 "$target_pid" 2>/dev/null || true
+        if ! _wait_for_pid_exit "$target_pid" 2; then
+          echo "Failed to stop original PID $target_pid; refusing restore." >&2
+          exit 1
+        fi
+      fi
+    else
+      echo "Original PID $target_pid is still alive. Refusing restore to avoid PID collision." >&2
+      echo "Retry with: sudo GXRA_TIMEWARP_KILL_ORIGINAL=1 $0 restore $run_dir" >&2
+      exit 1
+    fi
+  fi
+
+  set +e
   "$CRIU_BIN" restore \
     -D "$images_dir" \
     --shell-job \
     -o "$restore_log"
+  local restore_rc=$?
+  set -e
 
-  echo "=== Time-Warp restore invoked ==="
+  if [[ $restore_rc -ne 0 ]]; then
+    echo "=== Time-Warp restore failed ===" >&2
+    echo "run_dir: $run_dir" >&2
+    echo "restore_log: $restore_log" >&2
+    if [[ -f "$restore_log" ]]; then
+      echo "--- restore log excerpt ---" >&2
+      sed -n '1,120p' "$restore_log" >&2
+    fi
+    exit "$restore_rc"
+  fi
+
+  echo "=== Time-Warp restore succeeded ==="
   echo "run_dir: $run_dir"
   echo "restore_log: $restore_log"
   echo "Inspect the restored process state via the target state file or process list."

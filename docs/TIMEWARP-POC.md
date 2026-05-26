@@ -76,7 +76,7 @@ sudo ./scripts/timewarp-criu-poc.sh capture
 
 This will:
 
-1. start `scripts/timewarp_target.py`
+1. start a simple demo target (`scripts/timewarp_target.c` when `cc` is available, otherwise `scripts/timewarp_target.py`)
 2. optionally run `gxra-agent snapshot`
 3. checkpoint the target with CRIU
 4. write a manifest under `/tmp/gxra-timewarp-poc/<run-id>/`
@@ -115,21 +115,35 @@ The initial manifest includes:
 - `gxra_drift`
 - `checkpoint_digest`
 - `target_pid`
+- `target_kind`
 - `checkpoint_dir`
 
 This is the current bridge from Time-Warp to GX-RA assurance.
 
 ## Restore flow
 
-Stop the original process first, then restore:
+The restore path now refuses to run if the original PID is still alive, unless you explicitly allow the script to stop it.
+
+### Safe restore with auto-stop
 
 ```bash
+sudo GXRA_TIMEWARP_KILL_ORIGINAL=1 ./scripts/timewarp-criu-poc.sh restore /tmp/gxra-timewarp-poc/<run-id>
+```
+
+### Manual stop first
+
+```bash
+sudo kill <pid>
+while ps -p <pid> > /dev/null; do sleep 1; done
 sudo ./scripts/timewarp-criu-poc.sh restore /tmp/gxra-timewarp-poc/<run-id>
 ```
+
+If restore fails, the script now prints a restore failure summary and the CRIU log tail.
 
 ## Practical caveats
 
 - Use simple lab targets first. Arbitrary processes with network sockets, namespaces, or special kernel interactions may fail.
+- The PoC now prefers a very small C demo target when a compiler is available because it is typically more CRIU-friendly than a full Python process.
 - Restore semantics are workload-specific; a successful CRIU restore does not automatically imply production-safe recovery.
 - The manifest is currently a local artifact, not yet a first-class GX-RA API object.
 

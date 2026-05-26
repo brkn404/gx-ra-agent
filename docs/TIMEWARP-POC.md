@@ -2,7 +2,7 @@
 
 **Scope:** Linux-only, CRIU-based, assurance-linked proof slice for process/memory checkpoint work.
 
-**Status:** Initial proof scaffold
+**Status:** Lab-validated on Ubuntu 24.04 with CRIU 4.2
 
 ## What this proves
 
@@ -13,7 +13,8 @@ It proves:
 1. A Linux process can be checkpointed with **CRIU**
 2. The checkpoint can be represented as a fixed artifact set (`images/` + manifest)
 3. The checkpoint can be linked to the current GX-RA host identity and latest behavioral state capture
-4. The checkpoint can be restored later in a controlled lab setting
+4. The run can emit both a legacy `timewarp-manifest.json` and a more product-shaped `recovery-set.json`
+5. The checkpoint can be restored later in a controlled lab setting
 
 It does **not** prove yet:
 
@@ -22,6 +23,25 @@ It does **not** prove yet:
 - ring-buffer retention
 - API-native Time-Warp object storage in GX-RA
 - production-safe restore semantics for arbitrary workloads
+
+## Validation status
+
+The assurance-linked Linux proof now has one successful end-to-end lab validation on:
+
+- Ubuntu 24.04 VM
+- Linux `6.17.0-29-generic`
+- CRIU `4.2`
+- `gxra-agent` registered against GX-RA API
+- bundled C demo target using the `minimal` profile
+
+That validation proved:
+
+1. `gxra-agent snapshot` returned a real `state_id`
+2. `criu dump` completed and produced checkpoint images
+3. the manifest captured GX-RA metadata plus checkpoint digests
+4. `criu restore` succeeded after the original PID was stopped
+
+An earlier Ubuntu 22.04 / CRIU 3.16.1 AMD VM reproduced the capture path but failed during restore, which now appears to be an environment-level compatibility problem rather than a flaw in the assurance-link design.
 
 ## Why this is the first slice
 
@@ -87,7 +107,7 @@ For the most conservative retest path, force the minimal C profile:
 sudo GXRA_TIMEWARP_TARGET_PROFILE=minimal ./scripts/timewarp-criu-poc.sh capture
 ```
 
-That profile uses a smaller memory blob, sparser state-file writes, `/dev/null` for target stdout/stderr, and conservative compiler flags for the C demo target.
+That profile uses a smaller memory blob, faster ticks with sparser state-file writes, `/dev/null` for target stdout/stderr, and conservative compiler flags for the C demo target.
 
 ### Existing PID
 
@@ -96,6 +116,24 @@ Checkpoint a specific process instead:
 ```bash
 sudo ./scripts/timewarp-criu-poc.sh capture <pid>
 ```
+
+### Compound service boundary
+
+Capture a `systemd`-managed service boundary with a paired storage snapshot:
+
+```bash
+sudo GXRA_TIMEWARP_TARGET_ID=rt-timewarp-worker-service \
+     GXRA_TIMEWARP_SYSTEMD_UNIT=timewarp-worker.service \
+     GXRA_TIMEWARP_LVM_ORIGIN=/dev/vg_timewarp/lv_worker \
+     GXRA_TIMEWARP_MOUNT_POINTS=/srv/timewarp-worker \
+     GXRA_TIMEWARP_QUIESCE_MODE=cooperative \
+     GXRA_TIMEWARP_CONSISTENCY_GRADE=quiesced \
+     ./scripts/timewarp-criu-poc.sh capture-set
+```
+
+Concrete lab target entry:
+
+- `docs/timewarp-ubuntu24-worker-target.json`
 
 ## Output layout
 
@@ -110,7 +148,8 @@ sudo ./scripts/timewarp-criu-poc.sh capture <pid>
 ├── gxra-snapshot.log        # gxra-agent resolution/snapshot diagnostics
 ├── target.stdout.log
 ├── target.stderr.log
-└── timewarp-manifest.json   # assurance-linked metadata
+├── timewarp-manifest.json   # legacy proof manifest
+└── recovery-set.json        # compound recovery_set record
 ```
 
 ## Manifest fields
@@ -132,6 +171,25 @@ The initial manifest includes:
 
 This is the current bridge from Time-Warp to GX-RA assurance.
 
+## Recovery-set output
+
+Each capture now also emits `recovery-set.json` with:
+
+- `capture_window`
+- `behavioral_context`
+- `boundary`
+- `artifacts`
+- `candidate_lanes`
+
+When `capture-set` is used with `GXRA_TIMEWARP_SYSTEMD_UNIT` and `GXRA_TIMEWARP_LVM_ORIGIN`, the script will:
+
+1. resolve the service boundary from `systemd`
+2. create an LVM snapshot
+3. run the CRIU dump
+4. write a `recovery-set.json` that binds the behavioral, storage, and process artifacts together
+
+This is still a lab helper, not yet a first-class GX-RA API object.
+
 ## Restore flow
 
 The restore path now refuses to run if the original PID is still alive, unless you explicitly allow the script to stop it.
@@ -141,6 +199,8 @@ The restore path now refuses to run if the original PID is still alive, unless y
 ```bash
 sudo GXRA_TIMEWARP_KILL_ORIGINAL=1 ./scripts/timewarp-criu-poc.sh restore /tmp/gxra-timewarp-poc/<run-id>
 ```
+
+The auto-stop path now sends `SIGTERM`, waits a short grace period, and escalates to `SIGKILL` if the original PID still has not exited. If the PID still lingers, the script prints `ps` details before refusing the restore.
 
 ### Manual stop first
 
@@ -189,6 +249,7 @@ sudo GXRA_TIMEWARP_TARGET_PROFILE=minimal GXRA_TIMEWARP_KILL_ORIGINAL=1 \
 
 - Use simple lab targets first. Arbitrary processes with network sockets, namespaces, or special kernel interactions may fail.
 - The PoC now prefers a very small C demo target when a compiler is available because it is typically more CRIU-friendly than a full Python process.
+- The first successful restore validation was on Ubuntu 24.04 with CRIU 4.2; older distro/package combinations may still fail at restore time.
 - Restore semantics are workload-specific; a successful CRIU restore does not automatically imply production-safe recovery.
 - The manifest is currently a local artifact, not yet a first-class GX-RA API object.
 
@@ -196,7 +257,7 @@ sudo GXRA_TIMEWARP_TARGET_PROFILE=minimal GXRA_TIMEWARP_KILL_ORIGINAL=1 \
 
 After a successful Linux lab run:
 
-1. add a GX-RA API concept for `timewarp_checkpoint`
-2. store the manifest server-side
+1. add a GX-RA API concept for `recovery_set` and `timewarp_checkpoint`
+2. store the recovery-set manifest server-side
 3. optionally anchor digest metadata on the assurance ledger
 4. connect checkpoint triggering to watch/QSBA conditions

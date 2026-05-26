@@ -1,0 +1,57 @@
+{
+  "target_id": "rt-timewarp-worker-service",
+  "tenant_id": "pilot-1",
+  "entity_id": "ent-dc373af54c54",
+  "target_class": "recovery",
+  "enabled": true,
+  "boundary": {
+    "type": "systemd_unit",
+    "id": "timewarp-worker.service",
+    "systemd_unit": "timewarp-worker.service",
+    "cgroup_path": "/system.slice/timewarp-worker.service",
+    "root_pid_selector": "MainPID"
+  },
+  "storage": {
+    "mount_points": [
+      "/srv/timewarp-worker"
+    ],
+    "volume_refs": [
+      "vg_timewarp/lv_worker"
+    ],
+    "snapshot_provider": "lvm",
+    "snapshot_required_for_process_lane": true
+  },
+  "supported_actuators": [
+    "criu",
+    "fs_snapshot",
+    "vm_snapshot"
+  ],
+  "preferred_narrow_lane": "process_storage",
+  "fallback_lanes": [
+    "vm_revert",
+    "backup_restore"
+  ],
+  "constraints": {
+    "requires_linux": true,
+    "network_sensitivity": "low",
+    "device_sensitivity": "low",
+    "external_state_risk": "low",
+    "pause_tolerance": "high",
+    "operator_confirm_required": true
+  },
+  "validation": {
+    "status": "lab_only",
+    "evidence_refs": [
+      "docs/TIMEWARP-POC.md",
+      "docs/timewarp-ubuntu24-worker-target.json"
+    ],
+    "notes": "Ubuntu 24.04 lab target for coordinated CRIU plus LVM recovery-set capture"
+  },
+  "policy": {
+    "min_bsal": "L2",
+    "max_drift_score": 0.08,
+    "max_hybrid_score": 0.5,
+    "block_on_infected_scan": true,
+    "block_on_destructive_techniques": true
+  }
+}

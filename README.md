@@ -144,10 +144,15 @@ Linux-only CRIU proof scaffold (checkpoint + restore + GX-RA state link):
 
 - [docs/TIMEWARP-POC.md](docs/TIMEWARP-POC.md)
 - `sudo ./scripts/timewarp-criu-poc.sh capture`
+- `sudo GXRA_TIMEWARP_TARGET_ID=rt-timewarp-worker-service GXRA_TIMEWARP_SYSTEMD_UNIT=timewarp-worker.service GXRA_TIMEWARP_LVM_ORIGIN=/dev/vg_timewarp/lv_worker GXRA_TIMEWARP_MOUNT_POINTS=/srv/timewarp-worker ./scripts/timewarp-criu-poc.sh capture-set`
 - `sudo GXRA_TIMEWARP_TARGET_PROFILE=minimal ./scripts/timewarp-criu-poc.sh capture`
 - `sudo GXRA_TIMEWARP_KILL_ORIGINAL=1 ./scripts/timewarp-criu-poc.sh restore /tmp/gxra-timewarp-poc/<run-id>`
 
-The PoC now prefers a tiny C demo target when `cc` is available, supports a more conservative `minimal` target profile for restore retests, emits verbose CRIU diagnostics into the run directory, and will refuse restore if the original PID is still alive unless you explicitly allow the script to stop it.
+The PoC now prefers a tiny C demo target when `cc` is available, supports a more conservative `minimal` target profile for restore retests, emits verbose CRIU diagnostics into the run directory, writes both a legacy `timewarp-manifest.json` and a product-shaped `recovery-set.json`, and can capture a first compound `systemd + LVM` boundary via `capture-set`. The first successful assurance-linked restore validation was completed on Ubuntu 24.04 with CRIU 4.2.
+
+Concrete lab target entry:
+
+- `docs/timewarp-ubuntu24-worker-target.json`
 
 ## Linux deploy + E2E demo
 

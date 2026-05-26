@@ -138,6 +138,13 @@ exit /b 0
 
 **What is built vs what the demos prove:** [docs/MVP-INVENTORY.md](docs/MVP-INVENTORY.md)
 
+## Time-Warp proof of capability
+
+Linux-only CRIU proof scaffold (checkpoint + restore + GX-RA state link):
+
+- [docs/TIMEWARP-POC.md](docs/TIMEWARP-POC.md)
+- `sudo ./scripts/timewarp-criu-poc.sh capture`
+
 ## Linux deploy + E2E demo
 
 Fresh Ubuntu VM: see **[docs/UBUNTU-VM-QUICKSTART.md](docs/UBUNTU-VM-QUICKSTART.md)**.

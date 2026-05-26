@@ -81,6 +81,14 @@ This will:
 3. checkpoint the target with CRIU
 4. write a manifest under `/tmp/gxra-timewarp-poc/<run-id>/`
 
+For the most conservative retest path, force the minimal C profile:
+
+```bash
+sudo GXRA_TIMEWARP_TARGET_PROFILE=minimal ./scripts/timewarp-criu-poc.sh capture
+```
+
+That profile uses a smaller memory blob, sparser state-file writes, `/dev/null` for target stdout/stderr, and conservative compiler flags for the C demo target.
+
 ### Existing PID
 
 Checkpoint a specific process instead:
@@ -119,6 +127,7 @@ The initial manifest includes:
 - `checkpoint_digest`
 - `target_pid`
 - `target_kind`
+- `target_profile`
 - `checkpoint_dir`
 
 This is the current bridge from Time-Warp to GX-RA assurance.
@@ -164,6 +173,16 @@ You can also force the exact agent binary/config under `sudo`:
 sudo GXRA_AGENT_BIN=/home/<user>/gx-ra-agent/.venv/bin/gxra-agent \
      GXRA_AGENT_CONFIG=/home/<user>/.config/gxra-agent/config.json \
      ./scripts/timewarp-criu-poc.sh capture
+```
+
+## Conservative retest path
+
+If the default C target still crashes at restore, retest with the most conservative profile:
+
+```bash
+sudo GXRA_TIMEWARP_TARGET_PROFILE=minimal ./scripts/timewarp-criu-poc.sh capture
+sudo GXRA_TIMEWARP_TARGET_PROFILE=minimal GXRA_TIMEWARP_KILL_ORIGINAL=1 \
+     ./scripts/timewarp-criu-poc.sh restore /tmp/gxra-timewarp-poc/<run-id>
 ```
 
 ## Practical caveats

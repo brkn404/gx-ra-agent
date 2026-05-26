@@ -22,6 +22,7 @@ PY_BIN="${PY_BIN:-python3}"
 TIMEWARP_LABEL="${TIMEWARP_LABEL:-timewarp-demo}"
 TIMEWARP_BLOB_MB="${TIMEWARP_BLOB_MB:-8}"
 TIMEWARP_TICK_SEC="${TIMEWARP_TICK_SEC:-1.0}"
+TIMEWARP_TARGET_PROFILE="${GXRA_TIMEWARP_TARGET_PROFILE:-default}"
 GXRA_AGENT_BIN="${GXRA_AGENT_BIN:-}"
 CAPTURE_TELEMETRY="${GXRA_TIMEWARP_CAPTURE_TELEMETRY:-1}"
 TARGET_KIND="${GXRA_TIMEWARP_TARGET_KIND:-auto}"
@@ -115,7 +116,28 @@ PY
 _build_c_target() {
   local out_bin="$1"
   command -v cc >/dev/null 2>&1 || return 1
-  cc -O2 -Wall -Wextra "$ROOT/scripts/timewarp_target.c" -o "$out_bin"
+  local arch_flags=()
+  case "$(uname -m)" in
+    x86_64)
+      arch_flags=(-march=x86-64 -mtune=generic)
+      ;;
+    aarch64|arm64)
+      arch_flags=(-march=armv8-a)
+      ;;
+  esac
+  cc \
+    -O0 \
+    -g \
+    -Wall \
+    -Wextra \
+    -fno-stack-protector \
+    -fcf-protection=none \
+    -fno-omit-frame-pointer \
+    -fno-pie \
+    -no-pie \
+    "${arch_flags[@]}" \
+    "$ROOT/scripts/timewarp_target.c" \
+    -o "$out_bin"
 }
 
 _spawn_demo_target() {
@@ -126,6 +148,14 @@ _spawn_demo_target() {
 
   local chosen="${TARGET_KIND}"
   local label="$TIMEWARP_LABEL"
+  local stdout_target="$stdout_log"
+  local stderr_target="$stderr_log"
+  if [[ "$TIMEWARP_TARGET_PROFILE" == "minimal" ]]; then
+    printf 'minimal profile redirects target stdout to /dev/null\n' >"$stdout_log"
+    printf 'minimal profile redirects target stderr to /dev/null\n' >"$stderr_log"
+    stdout_target="/dev/null"
+    stderr_target="/dev/null"
+  fi
   if [[ "$chosen" == "auto" || "$chosen" == "c" ]]; then
     local out_bin="$run_dir/timewarp_target_bin"
     if _build_c_target "$out_bin"; then
@@ -133,9 +163,10 @@ _spawn_demo_target() {
         --state-file "$state_file" \
         --blob-mb "$TIMEWARP_BLOB_MB" \
         --tick-sec "$TIMEWARP_TICK_SEC" \
+        --profile "$TIMEWARP_TARGET_PROFILE" \
         --label "${label}-c" \
-        >"$stdout_log" 2>"$stderr_log" &
-      echo "$! c"
+        >"$stdout_target" 2>"$stderr_target" &
+      echo "$! c:${TIMEWARP_TARGET_PROFILE}"
       return
     fi
     if [[ "$chosen" == "c" ]]; then
@@ -149,7 +180,7 @@ _spawn_demo_target() {
     --blob-mb "$TIMEWARP_BLOB_MB" \
     --tick-sec "$TIMEWARP_TICK_SEC" \
     --label "${label}-python" \
-    >"$stdout_log" 2>"$stderr_log" &
+    >"$stdout_target" 2>"$stderr_target" &
   echo "$! python"
 }
 
@@ -286,6 +317,7 @@ _write_manifest() {
   local checkpoint_digest="$5"
   local telemetry_out="$6"
   local target_kind="$7"
+  local target_profile="$8"
 
   local cfg_json
   cfg_json="$(_read_cfg_json)"
@@ -298,6 +330,7 @@ _write_manifest() {
   CFG_JSON="$cfg_json" \
   TIMEWARP_LABEL="$TIMEWARP_LABEL" \
   TARGET_KIND="$target_kind" \
+  TARGET_PROFILE="$target_profile" \
   "$PY_BIN" - <<'PY'
 import json
 import os
@@ -332,6 +365,7 @@ manifest = {
     "checkpoint_digest": os.environ["CHECKPOINT_DIGEST"],
     "target_pid": int(os.environ["TARGET_PID"]),
     "target_kind": os.environ.get("TARGET_KIND", ""),
+    "target_profile": os.environ.get("TARGET_PROFILE", ""),
     "state_file": os.environ["STATE_FILE"],
     "entity_id": cfg.get("entity_id", ""),
     "device_did": cfg.get("device_did", ""),
@@ -376,7 +410,7 @@ capture_mode() {
   local target_kind=""
   if [[ -n "$ARG" ]]; then
     pid="$ARG"
-    target_kind="external"
+    target_kind="external:${TIMEWARP_TARGET_PROFILE}"
   else
     read -r pid target_kind <<<"$(_spawn_demo_target "$run_dir" "$state_file" "$run_dir/target.stdout.log" "$run_dir/target.stderr.log")"
     sleep 2
@@ -422,12 +456,13 @@ capture_mode() {
 
   local digest
   digest="$(_compute_dir_digest "$images_dir")"
-  _write_manifest "$run_dir/timewarp-manifest.json" "$run_dir" "$pid" "$state_file" "$digest" "$telemetry_out" "$target_kind"
+  _write_manifest "$run_dir/timewarp-manifest.json" "$run_dir" "$pid" "$state_file" "$digest" "$telemetry_out" "$target_kind" "$TIMEWARP_TARGET_PROFILE"
 
   echo "=== Time-Warp capture complete ==="
   echo "run_dir: $run_dir"
   echo "target_pid: $pid"
   echo "target_kind: $target_kind"
+  echo "target_profile: $TIMEWARP_TARGET_PROFILE"
   echo "images_dir: $images_dir"
   echo "manifest: $run_dir/timewarp-manifest.json"
   if [[ -n "$telemetry_out" ]]; then

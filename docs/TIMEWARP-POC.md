@@ -188,7 +188,17 @@ When `capture-set` is used with `GXRA_TIMEWARP_SYSTEMD_UNIT` and `GXRA_TIMEWARP_
 3. run the CRIU dump
 4. write a `recovery-set.json` that binds the behavioral, storage, and process artifacts together
 
-This is still a lab helper, not yet a first-class GX-RA API object.
+When `GXRA_RECOVERY_INGEST=1` (default), capture also runs `scripts/gxra-recovery-ingest.sh`, which:
+
+1. registers `docs/timewarp-ubuntu24-worker-target.json` with the agent `entity_id`
+2. posts `recovery-set.json` to `POST /v1/recovery/sets` on `GXRA_API_URL`
+
+Disable with `GXRA_RECOVERY_INGEST=0` or ingest manually:
+
+```bash
+export GXRA_API_URL=http://192.168.68.54:8081 GXRA_TENANT_ID=pilot-1
+./scripts/gxra-recovery-ingest.sh /tmp/gxra-timewarp-poc/<run-id>/recovery-set.json
+```
 
 ## Restore flow
 
@@ -257,7 +267,8 @@ sudo GXRA_TIMEWARP_TARGET_PROFILE=minimal GXRA_TIMEWARP_KILL_ORIGINAL=1 \
 
 After a successful Linux lab run:
 
-1. add a GX-RA API concept for `recovery_set` and `timewarp_checkpoint`
-2. store the recovery-set manifest server-side
+1. ~~add a GX-RA API concept for `recovery_set`~~ (done in GX-RA `POST /v1/recovery/sets`)
+2. ~~store the recovery-set manifest server-side~~ (ingest script + console UI)
+3. link authorize decisions to ledger for set-only paths (GX-RA API)
 3. optionally anchor digest metadata on the assurance ledger
 4. connect checkpoint triggering to watch/QSBA conditions

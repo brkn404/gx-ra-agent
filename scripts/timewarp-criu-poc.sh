@@ -904,6 +904,12 @@ _run_capture() {
   process_captured_at="$(date +%s)"
   _write_recovery_set "$run_dir/recovery-set.json" "$run_dir" "$images_dir" "$pid" "$state_file" "$digest" "$telemetry_out" "$target_kind" "$TIMEWARP_TARGET_PROFILE" "$capture_started_at" "$process_captured_at" "$behavioral_captured_at" "$process_captured_at" "$storage_provider" "$storage_snapshot_ref" "$storage_scope" "$storage_captured_at"
 
+  if [[ "${GXRA_RECOVERY_INGEST:-1}" == "1" && -x "$ROOT/scripts/gxra-recovery-ingest.sh" ]]; then
+    if ! "$ROOT/scripts/gxra-recovery-ingest.sh" "$run_dir/recovery-set.json"; then
+      echo "Warning: GX-RA recovery ingest failed (capture artifacts remain on disk)." >&2
+    fi
+  fi
+
   echo "=== Time-Warp capture complete ==="
   echo "run_dir: $run_dir"
   echo "target_pid: $pid"

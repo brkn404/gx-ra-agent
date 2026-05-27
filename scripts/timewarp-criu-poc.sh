@@ -394,13 +394,23 @@ _criu_shell_job_args() {
   esac
 }
 
-# CRIU restore often ignores terminal Ctrl+C; run in a subshell with traps that SIGKILL criu.
+_criu_log_restore_succeeded() {
+  local restore_log="$1"
+  local log_glob="${restore_log}"*
+  compgen -G "$log_glob" >/dev/null 2>&1 || return 1
+  grep -q "Restore finished successfully" $log_glob 2>/dev/null
+}
+
+# CRIU restore often ignores terminal Ctrl+C; run in background with traps that SIGKILL criu.
+# After "Restore finished successfully" the criu master may still block (cgroup cgroud / wait4);
+# detect that in the log and reap criu so the shell returns.
 _run_criu_restore() {
   local images_dir="$1"
   local restore_log="$2"
   shift 2
   local -a criu_extra=("$@")
   local criu_pid=""
+  local max_wait="${GXRA_TIMEWARP_CRIU_WAIT_SEC:-180}"
 
   _criu_restore_on_signal() {
     echo "" >&2
@@ -411,6 +421,9 @@ _run_criu_restore() {
       kill -KILL "$criu_pid" 2>/dev/null || true
     fi
     pkill -KILL -f "[c]riu restore.*${images_dir}" 2>/dev/null || true
+    if _criu_log_restore_succeeded "$restore_log"; then
+      exit 0
+    fi
     exit 130
   }
 
@@ -422,10 +435,42 @@ _run_criu_restore() {
     "${criu_extra[@]}" \
     -o "$restore_log" &
   criu_pid=$!
+
+  local i=0
+  while kill -0 "$criu_pid" 2>/dev/null; do
+    if _criu_log_restore_succeeded "$restore_log"; then
+      sleep 2
+      if ! kill -0 "$criu_pid" 2>/dev/null; then
+        break
+      fi
+      echo "CRIU logged restore success but criu master still running; stopping it (post-resume/cgroup hang)..." >&2
+      kill -TERM "$criu_pid" 2>/dev/null || true
+      sleep 1
+      kill -KILL "$criu_pid" 2>/dev/null || true
+      wait "$criu_pid" 2>/dev/null || true
+      trap - INT TERM
+      set -e
+      return 0
+    fi
+    if (( i >= max_wait )); then
+      echo "CRIU restore timed out after ${max_wait}s (see $restore_log*)" >&2
+      kill -KILL "$criu_pid" 2>/dev/null || true
+      wait "$criu_pid" 2>/dev/null || true
+      trap - INT TERM
+      set -e
+      return 1
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+
   wait "$criu_pid"
   local restore_rc=$?
   trap - INT TERM
   set -e
+  if (( restore_rc != 0 )) && _criu_log_restore_succeeded "$restore_log"; then
+    return 0
+  fi
   return "$restore_rc"
 }
 
@@ -1159,6 +1204,16 @@ restore_mode() {
   local shell_job_args=()
   read -r -a shell_job_args <<<"$(_criu_shell_job_args)"
 
+  local cgroup_args=()
+  local manage_cg="${GXRA_TIMEWARP_CRIU_MANAGE_CGROUPS:-}"
+  if [[ -z "$manage_cg" && -n "$systemd_unit" ]]; then
+    manage_cg=ignore
+  fi
+  if [[ -n "$manage_cg" ]]; then
+    cgroup_args=(--manage-cgroups="$manage_cg")
+    echo "CRIU cgroup mode: --manage-cgroups=$manage_cg"
+  fi
+
   echo "Starting CRIU restore from $images_dir (often 30–90s with no further output; log: $restore_log)..."
   echo "  Press Ctrl+C to abort (kills criu); if the terminal ignores Ctrl+C, use a second SSH session: sudo pkill -9 criu"
   if [[ ${#shell_job_args[@]} -gt 0 ]]; then
@@ -1166,7 +1221,12 @@ restore_mode() {
   fi
 
   local restore_rc=0
-  _run_criu_restore "$images_dir" "$restore_log" "${shell_job_args[@]}" "${criu_log_args[@]}" || restore_rc=$?
+  _run_criu_restore "$images_dir" "$restore_log" "${shell_job_args[@]}" "${cgroup_args[@]}" "${criu_log_args[@]}" || restore_rc=$?
+
+  if [[ $restore_rc -ne 0 ]] && _criu_log_restore_succeeded "$restore_log"; then
+    restore_rc=0
+    echo "Note: criu exited non-zero but the restore log reports success; treating as succeeded." >&2
+  fi
 
   if [[ $restore_rc -ne 0 ]]; then
     _write_diag_report "$restore_diag"

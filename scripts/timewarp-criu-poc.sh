@@ -394,6 +394,41 @@ _criu_shell_job_args() {
   esac
 }
 
+# CRIU restore often ignores terminal Ctrl+C; run in a subshell with traps that SIGKILL criu.
+_run_criu_restore() {
+  local images_dir="$1"
+  local restore_log="$2"
+  shift 2
+  local -a criu_extra=("$@")
+  local criu_pid=""
+
+  _criu_restore_on_signal() {
+    echo "" >&2
+    echo "Interrupt received; stopping CRIU restore..." >&2
+    if [[ -n "$criu_pid" ]] && kill -0 "$criu_pid" 2>/dev/null; then
+      kill -TERM "$criu_pid" 2>/dev/null || true
+      sleep 1
+      kill -KILL "$criu_pid" 2>/dev/null || true
+    fi
+    pkill -KILL -f "[c]riu restore.*${images_dir}" 2>/dev/null || true
+    exit 130
+  }
+
+  trap _criu_restore_on_signal INT TERM
+
+  set +e
+  "$CRIU_BIN" restore \
+    -D "$images_dir" \
+    "${criu_extra[@]}" \
+    -o "$restore_log" &
+  criu_pid=$!
+  wait "$criu_pid"
+  local restore_rc=$?
+  trap - INT TERM
+  set -e
+  return "$restore_rc"
+}
+
 _compute_dir_digest() {
   local target_dir="$1"
   TARGET_DIR="$target_dir" "$PY_BIN" - <<'PY'
@@ -1125,18 +1160,13 @@ restore_mode() {
   read -r -a shell_job_args <<<"$(_criu_shell_job_args)"
 
   echo "Starting CRIU restore from $images_dir (often 30–90s with no further output; log: $restore_log)..."
+  echo "  Press Ctrl+C to abort (kills criu); if the terminal ignores Ctrl+C, use a second SSH session: sudo pkill -9 criu"
   if [[ ${#shell_job_args[@]} -gt 0 ]]; then
     echo "  criu args: ${shell_job_args[*]} (set GXRA_TIMEWARP_SHELL_JOB=0 if restore hangs on SSH)"
   fi
 
-  set +e
-  "$CRIU_BIN" restore \
-    -D "$images_dir" \
-    "${shell_job_args[@]}" \
-    "${criu_log_args[@]}" \
-    -o "$restore_log"
-  local restore_rc=$?
-  set -e
+  local restore_rc=0
+  _run_criu_restore "$images_dir" "$restore_log" "${shell_job_args[@]}" "${criu_log_args[@]}" || restore_rc=$?
 
   if [[ $restore_rc -ne 0 ]]; then
     _write_diag_report "$restore_diag"

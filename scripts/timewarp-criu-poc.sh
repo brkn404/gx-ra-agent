@@ -1124,6 +1124,11 @@ restore_mode() {
   local shell_job_args=()
   read -r -a shell_job_args <<<"$(_criu_shell_job_args)"
 
+  echo "Starting CRIU restore from $images_dir (often 30–90s with no further output; log: $restore_log)..."
+  if [[ ${#shell_job_args[@]} -gt 0 ]]; then
+    echo "  criu args: ${shell_job_args[*]} (set GXRA_TIMEWARP_SHELL_JOB=0 if restore hangs on SSH)"
+  fi
+
   set +e
   "$CRIU_BIN" restore \
     -D "$images_dir" \

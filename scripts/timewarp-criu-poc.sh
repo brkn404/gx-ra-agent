@@ -258,12 +258,81 @@ _wait_for_pid_exit() {
   local max_wait="$2"
   local i=0
   while kill -0 "$pid" 2>/dev/null; do
+    printf '.' >&2
     sleep 1
     i=$((i + 1))
     if (( i >= max_wait )); then
+      printf '\n' >&2
       return 1
     fi
   done
+  if (( i > 0 )); then
+    printf ' done\n' >&2
+  fi
+  return 0
+}
+
+_manifest_systemd_unit() {
+  local manifest_path="$1"
+  local unit="${TIMEWARP_SYSTEMD_UNIT:-}"
+  if [[ -n "$unit" ]]; then
+    echo "$unit"
+    return
+  fi
+  local target_kind=""
+  target_kind="$(_read_manifest_field "$manifest_path" "target_kind")"
+  if [[ "$target_kind" == systemd:* ]]; then
+    echo "${target_kind#systemd:}"
+  fi
+}
+
+_stop_systemd_unit_for_restore() {
+  local unit="$1"
+  echo "Stopping $unit before CRIU restore (systemd would respawn if only the PID were killed)..."
+  systemctl stop "$unit" 2>/dev/null || true
+  local i=0
+  while systemctl is-active --quiet "$unit" 2>/dev/null; do
+    printf '.' >&2
+    sleep 1
+    i=$((i + 1))
+    if (( i >= RESTORE_WAIT_SEC )); then
+      printf '\n' >&2
+      echo "Unit still active after ${RESTORE_WAIT_SEC}s; cleaning worker processes..." >&2
+      break
+    fi
+  done
+  if (( i > 0 )) && (( i < RESTORE_WAIT_SEC )); then
+    printf ' inactive\n' >&2
+  fi
+
+  if pgrep -f '/opt/gxra-timewarp/timewarp-worker' >/dev/null 2>&1; then
+    echo "Sending SIGTERM to remaining timewarp-worker processes..."
+    pkill -TERM -f '/opt/gxra-timewarp/timewarp-worker' 2>/dev/null || true
+    if ! _wait_for_pgrep_exit '/opt/gxra-timewarp/timewarp-worker' "$TERM_WAIT_SEC"; then
+      echo "Escalating to SIGKILL for timewarp-worker..." >&2
+      pkill -9 -f '/opt/gxra-timewarp/timewarp-worker' 2>/dev/null || true
+      _wait_for_pgrep_exit '/opt/gxra-timewarp/timewarp-worker' "$RESTORE_WAIT_SEC" || true
+    fi
+  fi
+  echo "Service boundary stopped; starting CRIU restore."
+}
+
+_wait_for_pgrep_exit() {
+  local pattern="$1"
+  local max_wait="$2"
+  local i=0
+  while pgrep -f "$pattern" >/dev/null 2>&1; do
+    printf '.' >&2
+    sleep 1
+    i=$((i + 1))
+    if (( i >= max_wait )); then
+      printf '\n' >&2
+      return 1
+    fi
+  done
+  if (( i > 0 )); then
+    printf ' done\n' >&2
+  fi
   return 0
 }
 
@@ -1023,17 +1092,28 @@ restore_mode() {
 
   local target_pid=""
   target_pid="$(_read_manifest_field "$manifest_path" "target_pid")"
-  if [[ -n "$target_pid" ]] && kill -0 "$target_pid" 2>/dev/null; then
-    if [[ "$KILL_ORIGINAL_ON_RESTORE" == "1" ]]; then
+  local systemd_unit=""
+  systemd_unit="$(_manifest_systemd_unit "$manifest_path")"
+
+  if [[ "$KILL_ORIGINAL_ON_RESTORE" == "1" ]]; then
+    if [[ -n "$systemd_unit" ]]; then
+      _stop_systemd_unit_for_restore "$systemd_unit"
+    elif [[ -n "$target_pid" ]] && kill -0 "$target_pid" 2>/dev/null; then
       if ! _stop_pid_for_restore "$target_pid"; then
         echo "Failed to stop original PID $target_pid; refusing restore." >&2
         exit 1
       fi
-    else
-      echo "Original PID $target_pid is still alive. Refusing restore to avoid PID collision." >&2
-      echo "Retry with: sudo GXRA_TIMEWARP_KILL_ORIGINAL=1 $0 restore $run_dir" >&2
-      exit 1
     fi
+  elif [[ -n "$target_pid" ]] && kill -0 "$target_pid" 2>/dev/null; then
+    echo "Original PID $target_pid is still alive. Refusing restore to avoid PID collision." >&2
+    echo "Retry with: sudo GXRA_TIMEWARP_KILL_ORIGINAL=1 $0 restore $run_dir" >&2
+    exit 1
+  fi
+
+  # Service checkpoints restore headless; --shell-job on an SSH TTY often hangs forever.
+  if [[ -n "$systemd_unit" && "$TIMEWARP_SHELL_JOB" == "auto" ]]; then
+    TIMEWARP_SHELL_JOB=0
+    echo "Using headless CRIU restore for systemd unit (GXRA_TIMEWARP_SHELL_JOB=0)."
   fi
 
   local criu_log_args=("-v${CRIU_LOG_LEVEL}")

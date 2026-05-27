@@ -34,6 +34,8 @@ TERM_WAIT_SEC="${GXRA_TIMEWARP_TERM_WAIT_SEC:-3}"
 RESTORE_WAIT_SEC="${GXRA_TIMEWARP_RESTORE_WAIT_SEC:-10}"
 CRIU_LOG_LEVEL="${GXRA_TIMEWARP_CRIU_LOG_LEVEL:-4}"
 CRIU_LOG_PID="${GXRA_TIMEWARP_CRIU_LOG_PID:-1}"
+# auto: use --shell-job only on an interactive TTY (avoids restore hangs when piped to tee)
+TIMEWARP_SHELL_JOB="${GXRA_TIMEWARP_SHELL_JOB:-auto}"
 TIMEWARP_TARGET_ID="${GXRA_TIMEWARP_TARGET_ID:-}"
 TIMEWARP_TARGET_CLASS="${GXRA_TIMEWARP_TARGET_CLASS:-recovery}"
 TIMEWARP_BOUNDARY_TYPE="${GXRA_TIMEWARP_BOUNDARY_TYPE:-process_tree}"
@@ -303,6 +305,24 @@ _stop_pid_for_restore() {
     echo "PID $pid still exists after SIGKILL." >&2
   fi
   return 1
+}
+
+_criu_shell_job_args() {
+  # Prints --shell-job when appropriate; empty when restore should run headless.
+  case "$TIMEWARP_SHELL_JOB" in
+    1 | yes | true) echo --shell-job ;;
+    0 | no | false) ;;
+    auto)
+      if [[ -t 0 ]] && [[ -t 1 ]]; then
+        echo --shell-job
+      fi
+      ;;
+    *)
+      if [[ -t 0 ]] && [[ -t 1 ]]; then
+        echo --shell-job
+      fi
+      ;;
+  esac
 }
 
 _compute_dir_digest() {
@@ -853,11 +873,14 @@ _run_capture() {
     criu_log_args+=(--log-pid)
   fi
 
+  local shell_job_args=()
+  read -r -a shell_job_args <<<"$(_criu_shell_job_args)"
+
   set +e
   "$CRIU_BIN" dump \
     -t "$pid" \
     -D "$images_dir" \
-    --shell-job \
+    "${shell_job_args[@]}" \
     --leave-running \
     "${criu_log_args[@]}" \
     -o "$criu_log"
@@ -1012,10 +1035,13 @@ restore_mode() {
     criu_log_args+=(--log-pid)
   fi
 
+  local shell_job_args=()
+  read -r -a shell_job_args <<<"$(_criu_shell_job_args)"
+
   set +e
   "$CRIU_BIN" restore \
     -D "$images_dir" \
-    --shell-job \
+    "${shell_job_args[@]}" \
     "${criu_log_args[@]}" \
     -o "$restore_log"
   local restore_rc=$?

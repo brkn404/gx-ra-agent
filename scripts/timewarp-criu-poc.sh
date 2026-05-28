@@ -810,7 +810,7 @@ if storage_snapshot_ref:
     required_artifacts.insert(0, "art-storage-snapshot")
 
 candidate_lane = {
-    "lane_id": f"lane-{lane_type}",
+    "lane_id": f"lane-{lane_type.replace('_', '-')}",
     "lane_type": lane_type,
     "required_artifact_ids": required_artifacts,
     "compatibility_score": 0.7 if storage_snapshot_ref else 0.6,

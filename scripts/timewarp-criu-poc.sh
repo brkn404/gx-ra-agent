@@ -489,11 +489,21 @@ _ingest_recovery_set_manifest() {
   if [[ "${GXRA_RECOVERY_INGEST:-1}" != "1" ]]; then
     return 0
   fi
+  local py="${GXRA_TIMEWARP_PYTHON:-}"
+  if [[ -z "$py" && -x "$ROOT/.venv/bin/python" ]]; then
+    py="$ROOT/.venv/bin/python"
+  fi
+  if [[ -n "$py" && -x "$py" ]]; then
+    if ! "$py" -m gxra.timewarp.cli ingest "$manifest_path"; then
+      return 1
+    fi
+    return 0
+  fi
   local ingest_bin=""
-  if command -v gxra-timewarp >/dev/null 2>&1; then
-    ingest_bin="gxra-timewarp"
-  elif [[ -x "$ROOT/scripts/gxra-timewarp" ]]; then
+  if [[ -x "$ROOT/scripts/gxra-timewarp" ]]; then
     ingest_bin="$ROOT/scripts/gxra-timewarp"
+  elif command -v gxra-timewarp >/dev/null 2>&1; then
+    ingest_bin="gxra-timewarp"
   elif [[ -x "$ROOT/scripts/gxra-recovery-ingest.sh" ]]; then
     ingest_bin="$ROOT/scripts/gxra-recovery-ingest.sh"
   fi
@@ -521,6 +531,14 @@ _report_execution_status() {
   local set_id=""
   set_id="$(_read_recovery_set_field "$recovery_set" "recovery_set_id")"
   [[ -n "$set_id" ]] || set_id="$(basename "$run_dir")"
+  local py="${GXRA_TIMEWARP_PYTHON:-}"
+  if [[ -z "$py" && -x "$ROOT/.venv/bin/python" ]]; then
+    py="$ROOT/.venv/bin/python"
+  fi
+  if [[ -n "$py" && -x "$py" ]]; then
+    "$py" -m gxra.timewarp.cli report "$set_id" --status "$outcome" --notes "$notes" || true
+    return
+  fi
   if command -v gxra-timewarp >/dev/null 2>&1; then
     gxra-timewarp report "$set_id" --status "$outcome" --notes "$notes" || true
   elif [[ -x "$ROOT/scripts/gxra-timewarp" ]]; then

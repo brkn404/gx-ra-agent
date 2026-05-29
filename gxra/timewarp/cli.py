@@ -19,8 +19,27 @@ def _poc_script() -> Path:
     return _repo_root() / "scripts" / "timewarp-criu-poc.sh"
 
 
+def _resolve_python() -> str:
+    override = os.environ.get("GXRA_TIMEWARP_PYTHON")
+    if override and Path(override).is_file():
+        return override
+    venv = os.environ.get("VIRTUAL_ENV")
+    if venv:
+        candidate = Path(venv) / "bin" / "python"
+        if candidate.is_file():
+            return str(candidate)
+    candidate = _repo_root() / ".venv" / "bin" / "python"
+    if candidate.is_file():
+        return str(candidate)
+    return sys.executable
+
+
 def _production_env() -> dict[str, str]:
     env = dict(os.environ)
+    py = _resolve_python()
+    env["GXRA_TIMEWARP_PYTHON"] = py
+    venv_bin = str(Path(py).parent)
+    env["PATH"] = f"{venv_bin}:{env.get('PATH', '')}"
     env.setdefault("GXRA_RECOVERY_INGEST", "1")
     env.setdefault("GXRA_RECOVERY_INGEST_REQUIRED", "1")
     env.setdefault("GXRA_TIMEWARP_KILL_ORIGINAL", "1")

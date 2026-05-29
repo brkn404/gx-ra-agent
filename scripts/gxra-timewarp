@@ -2,8 +2,28 @@
 # Production entrypoint for Linux Time-Warp (sets required ingest + systemd reattach defaults).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+_resolve_python() {
+  if [[ -n "${GXRA_TIMEWARP_PYTHON:-}" && -x "${GXRA_TIMEWARP_PYTHON}" ]]; then
+    echo "${GXRA_TIMEWARP_PYTHON}"
+    return
+  fi
+  if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]]; then
+    echo "${VIRTUAL_ENV}/bin/python"
+    return
+  fi
+  if [[ -x "$ROOT/.venv/bin/python" ]]; then
+    echo "$ROOT/.venv/bin/python"
+    return
+  fi
+  echo "${PY_BIN:-python3}"
+}
+
+PYTHON="$(_resolve_python)"
+export GXRA_TIMEWARP_PYTHON="$PYTHON"
+export PATH="$(dirname "$PYTHON"):${PATH:-}"
 export GXRA_RECOVERY_INGEST_REQUIRED="${GXRA_RECOVERY_INGEST_REQUIRED:-1}"
 export GXRA_TIMEWARP_KILL_ORIGINAL="${GXRA_TIMEWARP_KILL_ORIGINAL:-1}"
 export GXRA_TIMEWARP_REATTACH_SYSTEMD="${GXRA_TIMEWARP_REATTACH_SYSTEMD:-1}"
 export GXRA_TIMEWARP_REPORT_EXECUTION="${GXRA_TIMEWARP_REPORT_EXECUTION:-1}"
-exec "${PY_BIN:-python3}" -m gxra.timewarp.cli "$@"
+exec "$PYTHON" -m gxra.timewarp.cli "$@"

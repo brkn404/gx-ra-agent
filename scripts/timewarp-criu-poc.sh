@@ -57,6 +57,10 @@ TIMEWARP_STORAGE_SCOPE="${GXRA_TIMEWARP_STORAGE_SCOPE:-}"
 TIMEWARP_LVM_ORIGIN="${GXRA_TIMEWARP_LVM_ORIGIN:-}"
 TIMEWARP_LVM_SNAPSHOT_SIZE="${GXRA_TIMEWARP_LVM_SNAPSHOT_SIZE:-2G}"
 TIMEWARP_LVM_SNAPSHOT_NAME="${GXRA_TIMEWARP_LVM_SNAPSHOT_NAME:-}"
+TIMEWARP_SNAPSHOT_TTL_DAYS="${GXRA_TIMEWARP_SNAPSHOT_TTL_DAYS:-7}"
+REATTACH_SYSTEMD="${GXRA_TIMEWARP_REATTACH_SYSTEMD:-0}"
+REPORT_EXECUTION="${GXRA_TIMEWARP_REPORT_EXECUTION:-0}"
+INGEST_REQUIRED="${GXRA_RECOVERY_INGEST_REQUIRED:-0}"
 
 _sudo_user_home() {
   if [[ -n "${SUDO_USER:-}" ]]; then
@@ -315,6 +319,213 @@ _stop_systemd_unit_for_restore() {
     fi
   fi
   echo "Service boundary stopped; starting CRIU restore."
+}
+
+_reattach_systemd_after_restore() {
+  local unit="$1"
+  local worker_pattern="${GXRA_TIMEWARP_WORKER_PATTERN:-/opt/gxra-timewarp/timewarp-worker}"
+  [[ -n "$unit" ]] || return 0
+
+  echo "Reattaching $unit to systemd supervision (Block H)..."
+  local restored_pid=""
+  restored_pid="$(pgrep -f "$worker_pattern" | head -n1 || true)"
+  if [[ -n "$restored_pid" ]]; then
+    echo "Stopping CRIU-restored worker PID $restored_pid..."
+    kill -TERM "$restored_pid" 2>/dev/null || true
+    _wait_for_pgrep_exit "$worker_pattern" "$TERM_WAIT_SEC" || true
+  fi
+  while pgrep -f "$worker_pattern" >/dev/null 2>&1; do
+    sleep 1
+  done
+  systemctl daemon-reload 2>/dev/null || true
+  systemctl start "$unit"
+  local i=0
+  while ! systemctl is-active --quiet "$unit" 2>/dev/null; do
+    sleep 1
+    i=$((i + 1))
+    if (( i >= RESTORE_WAIT_SEC )); then
+      echo "Warning: $unit not active after ${RESTORE_WAIT_SEC}s" >&2
+      return 1
+    fi
+  done
+  echo "systemd unit $unit is active."
+  systemctl status "$unit" --no-pager | head -n 15 || true
+  return 0
+}
+
+_read_recovery_set_field() {
+  local recovery_set_path="$1"
+  local field="$2"
+  RECOVERY_SET_PATH="$recovery_set_path" FIELD="$field" "$PY_BIN" - <<'PY'
+import json, os, sys
+from pathlib import Path
+p = Path(os.environ["RECOVERY_SET_PATH"])
+data = json.loads(p.read_text())
+field = os.environ["FIELD"]
+parts = field.split(".")
+cur = data
+for part in parts:
+    if isinstance(cur, dict):
+        cur = cur.get(part)
+    else:
+        cur = None
+        break
+if cur is None:
+    sys.exit(0)
+print(cur)
+PY
+}
+
+_resolve_lvm_snap_device() {
+  local run_dir="$1"
+  local log_path="$run_dir/storage-snapshot.log"
+  if [[ -f "$log_path" ]]; then
+    local origin_line snap_name origin_vg
+    origin_line="$(grep -E '^origin:' "$log_path" | head -n1 || true)"
+    snap_name="$(grep -E '^snapshot_name:' "$log_path" | head -n1 | awk '{print $2}' || true)"
+    local snap_from_log=""
+    snap_from_log="$(grep -E '^snap_device:' "$log_path" | head -n1 | awk '{print $2}' || true)"
+    if [[ -n "$snap_from_log" ]]; then
+      echo "$snap_from_log"
+      return
+    fi
+    origin_vg="$(echo "$origin_line" | awk '{print $2}' | sed 's|^/dev/||' | cut -d/ -f1 || true)"
+    if [[ -n "$origin_vg" && -n "$snap_name" ]]; then
+      echo "/dev/${origin_vg}/${snap_name}"
+      return
+    fi
+  fi
+  local recovery_set="$run_dir/recovery-set.json"
+  if [[ -f "$recovery_set" ]]; then
+    RECOVERY_SET_PATH="$recovery_set" "$PY_BIN" - <<'PY'
+import json, os
+from pathlib import Path
+arts = json.loads(Path(os.environ["RECOVERY_SET_PATH"]).read_text()).get("artifacts") or []
+for art in arts:
+    if art.get("artifact_type") == "fs_snapshot" and art.get("reference"):
+        ref = art["reference"]
+        if not ref.startswith("/dev/"):
+            ref = f"/dev/{ref}"
+        print(ref)
+        break
+PY
+  fi
+}
+
+_restore_storage_from_snapshot() {
+  local run_dir="$1"
+  local snap_dev="${GXRA_SNAP_DEV:-}"
+  if [[ -z "$snap_dev" ]]; then
+    snap_dev="$(_resolve_lvm_snap_device "$run_dir")"
+  fi
+  [[ -n "$snap_dev" && -b "$snap_dev" ]] || {
+    echo "No LVM snapshot block device for storage restore (set GXRA_SNAP_DEV)." >&2
+    return 1
+  }
+
+  local target_mount=""
+  target_mount="$(_read_recovery_set_field "$run_dir/recovery-set.json" "boundary.mount_points")"
+  target_mount="$(TARGET_MOUNT="$target_mount" "$PY_BIN" - <<'PY'
+import json, os
+raw = os.environ.get("TARGET_MOUNT", "")
+if raw.startswith("["):
+    pts = json.loads(raw)
+else:
+    pts = [p.strip() for p in raw.split(",") if p.strip()]
+print(pts[0] if pts else "")
+PY
+)"
+  [[ -n "$target_mount" ]] || target_mount="${GXRA_MOUNT:-}"
+  if [[ -z "$target_mount" ]]; then
+    echo "Could not resolve target mount for storage restore." >&2
+    return 1
+  fi
+
+  local snap_mount="${GXRA_SNAP_MOUNT:-/mnt/gxra-snap-restore}"
+  mkdir -p "$snap_mount"
+  mount | grep -q " $snap_mount " && umount "$snap_mount" || true
+  mount -o ro "$snap_dev" "$snap_mount"
+  echo "Rolling back $target_mount from $snap_dev ..."
+  command -v rsync >/dev/null 2>&1 || {
+    umount "$snap_mount" || true
+    echo "rsync required for storage restore." >&2
+    return 1
+  }
+  pkill -f '/opt/gxra-timewarp/timewarp-worker' 2>/dev/null || true
+  _wait_for_pgrep_exit '/opt/gxra-timewarp/timewarp-worker' "$TERM_WAIT_SEC" || true
+  rsync -a --delete "${snap_mount}/" "${target_mount}/"
+  sync
+  umount "$snap_mount" || true
+  echo "Storage rollback complete."
+}
+
+_write_snapshot_retention() {
+  local run_dir="$1"
+  local recovery_set_id="$2"
+  local snap_ref="$3"
+  [[ -n "$snap_ref" ]] || return 0
+  RETENTION_PATH="$run_dir/snapshot-retention.json" \
+  RECOVERY_SET_ID="$recovery_set_id" \
+  SNAP_REF="$snap_ref" \
+  TTL_DAYS="$TIMEWARP_SNAPSHOT_TTL_DAYS" \
+  CAPTURED_AT="$(date +%s)" \
+  "$PY_BIN" - <<'PY'
+import json, os
+from pathlib import Path
+payload = {
+    "recovery_set_id": os.environ["RECOVERY_SET_ID"],
+    "snapshot_ref": os.environ["SNAP_REF"],
+    "captured_at": float(os.environ["CAPTURED_AT"]),
+    "expires_at": float(os.environ["CAPTURED_AT"]) + int(os.environ["TTL_DAYS"]) * 86400,
+    "ttl_days": int(os.environ["TTL_DAYS"]),
+}
+Path(os.environ["RETENTION_PATH"]).write_text(json.dumps(payload, indent=2))
+PY
+}
+
+_ingest_recovery_set_manifest() {
+  local manifest_path="$1"
+  [[ -f "$manifest_path" ]] || return 1
+  if [[ "${GXRA_RECOVERY_INGEST:-1}" != "1" ]]; then
+    return 0
+  fi
+  local ingest_bin=""
+  if command -v gxra-timewarp >/dev/null 2>&1; then
+    ingest_bin="gxra-timewarp"
+  elif [[ -x "$ROOT/scripts/gxra-timewarp" ]]; then
+    ingest_bin="$ROOT/scripts/gxra-timewarp"
+  elif [[ -x "$ROOT/scripts/gxra-recovery-ingest.sh" ]]; then
+    ingest_bin="$ROOT/scripts/gxra-recovery-ingest.sh"
+  fi
+  [[ -n "$ingest_bin" ]] || {
+    echo "No ingest helper found." >&2
+    return 1
+  }
+  if [[ "$ingest_bin" == *gxra-timewarp* ]]; then
+    if ! "$ingest_bin" ingest "$manifest_path"; then
+      return 1
+    fi
+  elif ! "$ingest_bin" "$manifest_path"; then
+    return 1
+  fi
+  return 0
+}
+
+_report_execution_status() {
+  local run_dir="$1"
+  local outcome="$2"
+  local notes="${3:-}"
+  [[ "$REPORT_EXECUTION" == "1" ]] || return 0
+  local recovery_set="$run_dir/recovery-set.json"
+  [[ -f "$recovery_set" ]] || return 0
+  local set_id=""
+  set_id="$(_read_recovery_set_field "$recovery_set" "recovery_set_id")"
+  [[ -n "$set_id" ]] || set_id="$(basename "$run_dir")"
+  if command -v gxra-timewarp >/dev/null 2>&1; then
+    gxra-timewarp report "$set_id" --status "$outcome" --notes "$notes" || true
+  elif [[ -x "$ROOT/scripts/gxra-timewarp" ]]; then
+    PY_BIN="$PY_BIN" "$ROOT/scripts/gxra-timewarp" report "$set_id" --status "$outcome" --notes "$notes" || true
+  fi
 }
 
 _wait_for_pgrep_exit() {
@@ -594,6 +805,7 @@ _maybe_capture_storage_snapshot() {
       echo "snapshot_size: $TIMEWARP_LVM_SNAPSHOT_SIZE"
     } >>"$log_path"
     lvcreate -s -n "$snapshot_name" -L "$TIMEWARP_LVM_SNAPSHOT_SIZE" "$TIMEWARP_LVM_ORIGIN" >>"$log_path" 2>&1
+    echo "snap_device: /dev/${origin_vg}/${snapshot_name}" >>"$log_path"
     provider="lvm"
     snapshot_ref="${origin_vg}/${snapshot_name}"
     captured_at="$(date +%s)"
@@ -1053,10 +1265,16 @@ _run_capture() {
   process_captured_at="$(date +%s)"
   _write_recovery_set "$run_dir/recovery-set.json" "$run_dir" "$images_dir" "$pid" "$state_file" "$digest" "$telemetry_out" "$target_kind" "$TIMEWARP_TARGET_PROFILE" "$capture_started_at" "$process_captured_at" "$behavioral_captured_at" "$process_captured_at" "$storage_provider" "$storage_snapshot_ref" "$storage_scope" "$storage_captured_at"
 
-  if [[ "${GXRA_RECOVERY_INGEST:-1}" == "1" && -x "$ROOT/scripts/gxra-recovery-ingest.sh" ]]; then
-    if ! "$ROOT/scripts/gxra-recovery-ingest.sh" "$run_dir/recovery-set.json"; then
-      echo "Warning: GX-RA recovery ingest failed (capture artifacts remain on disk)." >&2
+  if [[ -n "$storage_snapshot_ref" ]]; then
+    _write_snapshot_retention "$run_dir" "$run_id" "$storage_snapshot_ref"
+  fi
+
+  if ! _ingest_recovery_set_manifest "$run_dir/recovery-set.json"; then
+    if [[ "$INGEST_REQUIRED" == "1" ]]; then
+      echo "Recovery ingest failed (GXRA_RECOVERY_INGEST_REQUIRED=1)." >&2
+      exit 1
     fi
+    echo "Warning: GX-RA recovery ingest failed (capture artifacts remain on disk)." >&2
   fi
 
   echo "=== Time-Warp capture complete ==="
@@ -1235,21 +1453,56 @@ restore_mode() {
     echo "restore_log: $restore_log*" >&2
     echo "diagnostics: $restore_diag" >&2
     _print_log_excerpt "$restore_log"
+    _report_execution_status "$run_dir" "failed" "CRIU restore failed"
     exit "$restore_rc"
   fi
 
   echo "=== Time-Warp restore succeeded ==="
   echo "run_dir: $run_dir"
   echo "restore_log: $restore_log*"
+  if [[ "$REATTACH_SYSTEMD" == "1" && -n "$systemd_unit" ]]; then
+    _reattach_systemd_after_restore "$systemd_unit" || true
+  fi
+  _report_execution_status "$run_dir" "succeeded" "CRIU restore completed"
   echo "Inspect the restored process state via the target state file or process list."
+}
+
+restore_set_mode() {
+  _check_linux
+  _need_root
+  if [[ -z "$ARG" ]]; then
+    echo "Usage: sudo $0 restore-set /path/to/run_dir" >&2
+    exit 1
+  fi
+  local run_dir="$ARG"
+  local recovery_set="$run_dir/recovery-set.json"
+  [[ -f "$recovery_set" ]] || {
+    echo "Missing $recovery_set" >&2
+    exit 1
+  }
+  local has_fs=""
+  has_fs="$(RECOVERY_SET_PATH="$recovery_set" "$PY_BIN" - <<'PY'
+import json, os
+from pathlib import Path
+arts = json.loads(Path(os.environ["RECOVERY_SET_PATH"]).read_text()).get("artifacts") or []
+print("1" if any(a.get("artifact_type") == "fs_snapshot" for a in arts) else "")
+PY
+)"
+  if [[ -n "$has_fs" ]]; then
+    _restore_storage_from_snapshot "$run_dir" || exit 1
+  fi
+  KILL_ORIGINAL_ON_RESTORE=1
+  export GXRA_TIMEWARP_KILL_ORIGINAL=1
+  restore_mode
 }
 
 case "$MODE" in
   capture) capture_mode ;;
   capture-set) capture_set_mode ;;
   restore) restore_mode ;;
+  restore-set) restore_set_mode ;;
   *)
-    echo "Usage: $0 {capture [pid]|capture-set|restore <run_dir>}" >&2
+    echo "Usage: $0 {capture [pid]|capture-set|restore <run_dir>|restore-set <run_dir>}" >&2
     exit 1
     ;;
 esac

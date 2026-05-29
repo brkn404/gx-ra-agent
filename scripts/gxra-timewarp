@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Production entrypoint for Linux Time-Warp (sets required ingest + systemd reattach defaults).
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+export GXRA_RECOVERY_INGEST_REQUIRED="${GXRA_RECOVERY_INGEST_REQUIRED:-1}"
+export GXRA_TIMEWARP_KILL_ORIGINAL="${GXRA_TIMEWARP_KILL_ORIGINAL:-1}"
+export GXRA_TIMEWARP_REATTACH_SYSTEMD="${GXRA_TIMEWARP_REATTACH_SYSTEMD:-1}"
+export GXRA_TIMEWARP_REPORT_EXECUTION="${GXRA_TIMEWARP_REPORT_EXECUTION:-1}"
+exec "${PY_BIN:-python3}" -m gxra.timewarp.cli "$@"

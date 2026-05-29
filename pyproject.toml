@@ -44,6 +44,7 @@ Issues = "https://github.com/brkn404/gx-ra-agent/issues"
 
 [project.scripts]
 gxra-agent = "gxra.agent.cli:main"
+gxra-timewarp = "gxra.timewarp.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

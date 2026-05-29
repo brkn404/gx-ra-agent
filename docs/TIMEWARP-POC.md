@@ -2,7 +2,16 @@
 
 **Scope:** Linux-only, CRIU-based, assurance-linked proof slice for process/memory checkpoint work.
 
-**Status:** Lab-validated on Ubuntu 24.04 with CRIU 4.2
+**Status:** Lab-validated on Ubuntu 24.04 with CRIU 4.2 · **Production actuator:** `scripts/gxra-timewarp` (M2)
+
+## Production actuator (`gxra-timewarp`)
+
+```bash
+sudo -E ./scripts/gxra-timewarp capture-set   # compound capture + required API ingest
+sudo ./scripts/gxra-timewarp restore --full /tmp/gxra-timewarp-poc/<run-id>
+```
+
+Sets `GXRA_RECOVERY_INGEST_REQUIRED=1`, automated systemd Block H, and execution PATCH to GX-RA API.
 
 ## What this proves
 

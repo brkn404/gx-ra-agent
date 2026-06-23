@@ -34,7 +34,12 @@ class AgentConfig:
             cfg.tenant_id = os.environ.get("GXRA_TENANT_ID", cfg.tenant_id)
             return cfg
         data = json.loads(p.read_text())
-        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+        cfg = cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+        if os.environ.get("GXRA_API_URL"):
+            cfg.api_url = os.environ["GXRA_API_URL"]
+        if os.environ.get("GXRA_TENANT_ID"):
+            cfg.tenant_id = os.environ["GXRA_TENANT_ID"]
+        return cfg
 
     def save(self, path: Optional[Path] = None) -> Path:
         env = os.environ.get("GXRA_AGENT_CONFIG")

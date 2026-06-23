@@ -11,12 +11,17 @@ from gxra.agent.config import AgentConfig
 
 class GxraApiClient:
     def __init__(self, config: AgentConfig):
+        import os
+
         self.config = config
         self.base = config.api_url.rstrip("/")
         self.headers = {
             "X-Tenant-Id": config.tenant_id,
             "Content-Type": "application/json",
         }
+        enroll = os.environ.get("GXRA_ENROLL_TOKEN", "").strip()
+        if enroll:
+            self.headers["X-GXRA-Enroll-Token"] = enroll
 
     def register_entity(
         self,
@@ -98,6 +103,38 @@ class GxraApiClient:
             headers=self.headers,
             json=payload,
             timeout=60.0,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def associate_local_snapshot(
+        self,
+        *,
+        entity_id: str,
+        file_paths: List[str],
+        file_hashes: List[str],
+        merkle_root: str,
+        storage_uri: str,
+        backup_timestamp: Optional[float] = None,
+        policy_state: str = "clean",
+    ) -> Dict[str, Any]:
+        import time as _time
+
+        payload = {
+            "entity_id": entity_id,
+            "snapshot_source": "local_os",
+            "backup_timestamp": backup_timestamp or _time.time(),
+            "storage_uri": storage_uri,
+            "file_paths": file_paths,
+            "file_hashes": file_hashes,
+            "optional_merkle_root": merkle_root,
+            "policy_state": policy_state,
+        }
+        r = httpx.post(
+            f"{self.base}/v1/snapshots/associate",
+            headers=self.headers,
+            json=payload,
+            timeout=120.0,
         )
         r.raise_for_status()
         return r.json()

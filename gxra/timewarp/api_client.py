@@ -125,6 +125,32 @@ class RecoveryApiClient:
             )
         return resp.json()
 
+    def post_runtime_verify(self, report: Dict[str, Any]) -> Dict[str, Any]:
+        url = f"{self.base_url}/v1/recovery/runtime-verify"
+        resp = httpx.post(url, headers=self._headers, json=report, timeout=self.timeout)
+        if resp.status_code not in (200, 201):
+            raise RecoveryApiError(
+                f"runtime verify ingest failed {resp.status_code}: {resp.text}"
+            )
+        return resp.json()
+
+    def list_runtime_verify(
+        self,
+        *,
+        entity_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {"limit": limit}
+        if entity_id:
+            params["entity_id"] = entity_id
+        url = f"{self.base_url}/v1/recovery/runtime-verify"
+        resp = httpx.get(url, headers=self._headers, params=params, timeout=self.timeout)
+        if resp.status_code != 200:
+            raise RecoveryApiError(
+                f"runtime verify list failed {resp.status_code}: {resp.text}"
+            )
+        return resp.json().get("reports") or []
+
 
 def load_agent_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
     candidates: List[Path] = []

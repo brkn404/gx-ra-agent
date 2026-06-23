@@ -6,6 +6,7 @@ import argparse
 import socket
 import sys
 import time
+from gxra.agent.bsr_merkle import build_local_snapshot
 from gxra.agent.client import GxraApiClient
 from gxra.agent.collector import collect_host_genome, genome_digest
 from gxra.agent.config import AgentConfig, default_config_path
@@ -125,6 +126,36 @@ def cmd_learn(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bsr_capture(args: argparse.Namespace) -> int:
+    cfg = AgentConfig.load()
+    if not cfg.entity_id:
+        print("Run `gxra-agent register` or `bind` first", file=sys.stderr)
+        return 1
+    file_paths = list(args.paths)
+    if not file_paths:
+        print("At least one protected file path is required", file=sys.stderr)
+        return 1
+
+    built = build_local_snapshot(file_paths)
+    client = GxraApiClient(cfg)
+    genome = collect_host_genome(64)
+    client.push_telemetry(cfg.entity_id, genome, auto_qsba=not args.no_auto_qsba)
+    storage_uri = args.storage_uri or f"file://{file_paths[0].rsplit('/', 1)[0]}"
+    assoc = client.associate_local_snapshot(
+        entity_id=cfg.entity_id,
+        file_paths=file_paths,
+        file_hashes=built["file_hashes"],
+        merkle_root=built["merkle_root"],
+        storage_uri=storage_uri,
+        policy_state=args.policy_state,
+    )
+    print(
+        f"association_id={assoc.get('association_id')} "
+        f"merkle={built['merkle_root'][:16]}… files={built['file_count']}"
+    )
+    return 0
+
+
 def cmd_snapshot(args: argparse.Namespace) -> int:
     cfg = AgentConfig.load()
     if not cfg.entity_id:
@@ -235,6 +266,27 @@ def main(argv: list[str] | None = None) -> int:
     p_learn.add_argument("--min-samples", type=int, default=3)
     p_learn.add_argument("--no-auto-qsba", action="store_true")
     p_learn.set_defaults(func=cmd_learn, auto_qsba=True)
+
+    p_bsr = sub.add_parser(
+        "bsr-capture",
+        help="Hash protected files, push telemetry, associate local_os BSR snapshot",
+    )
+    p_bsr.add_argument(
+        "paths",
+        nargs="+",
+        help="Protected file paths on this host (Merkle + BSG metadata)",
+    )
+    p_bsr.add_argument(
+        "--storage-uri",
+        help="Off-chain storage URI (default: parent dir of first path)",
+    )
+    p_bsr.add_argument(
+        "--policy-state",
+        default="clean",
+        choices=["clean", "suspicious", "malicious"],
+    )
+    p_bsr.add_argument("--no-auto-qsba", action="store_true")
+    p_bsr.set_defaults(func=cmd_bsr_capture, auto_qsba=True)
 
     p_snap = sub.add_parser("snapshot", help="One telemetry push")
     p_snap.add_argument("--no-auto-qsba", action="store_true")

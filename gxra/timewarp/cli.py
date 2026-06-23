@@ -143,6 +143,62 @@ def cmd_restore(args: argparse.Namespace) -> int:
     return _run_poc([mode, run_dir], need_root=True)
 
 
+def cmd_verify(args: argparse.Namespace) -> int:
+    from gxra.timewarp.api_client import load_agent_config
+    from gxra.timewarp.runtime_verify import run_runtime_verify
+
+    cfg = load_agent_config()
+    entity_id = args.entity_id or cfg.get("entity_id") or ""
+    tenant_id = os.environ.get("GXRA_TENANT_ID", cfg.get("tenant_id", "kit-lab"))
+    paths = list(args.paths or [])
+    if not paths:
+        print("At least one --path is required", file=sys.stderr)
+        return 1
+
+    anchored: dict[str, str] = {}
+    anchor_file = args.anchor_json
+    if anchor_file:
+        raw = json.loads(Path(anchor_file).read_text())
+        for idx, path in enumerate(raw.get("file_paths") or paths):
+            hashes = raw.get("file_hashes") or []
+            if idx < len(hashes):
+                anchored[path] = hashes[idx]
+
+    report = run_runtime_verify(
+        entity_id=entity_id,
+        tenant_id=tenant_id,
+        protected_paths=paths,
+        anchored_hashes=anchored or None,
+        anchored_merkle_root=args.anchor_merkle,
+        timewarp_state_path=args.state_file,
+    )
+    payload = report.to_dict()
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    else:
+        print(f"runtime_verify status={report.status} entity={entity_id}")
+        for row in report.files:
+            print(
+                f"  {row.path}: {row.status}"
+                + (f" pids={row.holder_pids}" if row.holder_pids else "")
+                + (f" — {row.message}" if row.message else "")
+            )
+        if report.timewarp_counter is not None:
+            print(f"  timewarp counter={report.timewarp_counter}")
+
+    if args.ingest:
+        from gxra.timewarp.api_client import RecoveryApiError, client_from_env
+
+        try:
+            client_from_env().post_runtime_verify(payload)
+        except RecoveryApiError as exc:
+            print(f"Runtime verify ingest failed: {exc}", file=sys.stderr)
+            return 1
+        print("Ingested runtime verify report to GX-RA API")
+
+    return 0 if report.status == "verified" else 1
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     from gxra.timewarp.api_client import RecoveryApiError, client_from_env
 
@@ -198,6 +254,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Storage rsync + CRIU + systemd reattach (restore-set)",
     )
     rest.set_defaults(func=cmd_restore)
+
+    ver = sub.add_parser(
+        "verify",
+        help="Compare protected files on disk vs process-held copies (runtime bind)",
+    )
+    ver.add_argument(
+        "--path",
+        dest="paths",
+        action="append",
+        help="Protected file path (repeatable)",
+    )
+    ver.add_argument("--entity-id", default=None)
+    ver.add_argument(
+        "--state-file",
+        default=None,
+        help="Time-Warp worker JSON state file (counter telemetry)",
+    )
+    ver.add_argument(
+        "--anchor-json",
+        default=None,
+        help="BSR snapshot JSON with file_paths + file_hashes",
+    )
+    ver.add_argument("--anchor-merkle", default=None)
+    ver.add_argument("--json", action="store_true")
+    ver.add_argument(
+        "--ingest",
+        action="store_true",
+        help="POST report to GX-RA /v1/recovery/runtime-verify",
+    )
+    ver.set_defaults(func=cmd_verify)
 
     rep = sub.add_parser("report", help="PATCH execution outcome to GX-RA API")
     rep.add_argument("recovery_set_id")

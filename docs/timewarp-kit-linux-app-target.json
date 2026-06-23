@@ -1,0 +1,20 @@
+{
+  "target_id": "rt-kit-linux-app-timewarp",
+  "entity_id": "ent-c31d32fe2c9c",
+  "tenant_id": "kit-lab",
+  "display_name": "kit-linux-app Time-Warp worker",
+  "target_class": "application_service",
+  "enabled": true,
+  "boundary": {
+    "boundary_id": "kit-linux-app-protected",
+    "systemd_unit": "gxra-timewarp-worker.service",
+    "mount_points": ["/home/kit/gxra-protected"]
+  },
+  "protected_paths": [
+    "/home/kit/gxra-protected/app.conf",
+    "/home/kit/gxra-protected/db-state.json",
+    "/home/kit/gxra-protected/hostname",
+    "/home/kit/gxra-protected/timewarp-state.json"
+  ],
+  "notes": "Lab Time-Warp + BSR runtime bind on VM 127 (.75)"
+}

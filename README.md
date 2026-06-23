@@ -8,31 +8,25 @@ Host agent for **[GX-RA](https://github.com/brkn404/GX-RA)** (GenomeX Recovery A
 
 ## Quick install
 
-### Windows (PowerShell)
-
-**Pilot VM (WIN-VM-LAB01, entity `ent-2272a0680155`):** full steps in [`docs/WINDOWS-VM-QUICKSTART.md`](docs/WINDOWS-VM-QUICKSTART.md)
+### Windows (PowerShell) — pip from GitHub
 
 ```powershell
-git clone https://github.com/brkn404/gx-ra-agent.git C:\gx-ra-agent
-cd C:\gx-ra-agent
+py -3.12 -m venv C:\gxra-agent-venv
+C:\gxra-agent-venv\Scripts\Activate.ps1
+pip install "gx-ra-agent @ git+https://github.com/brkn404/gx-ra-agent.git"
+
 $env:GXRA_API_URL = "http://192.168.68.54:8081"
 $env:GXRA_TENANT_ID = "pilot-1"
-.\scripts\install-windows.ps1 -PilotEntity   # bind fleet entity; skip learn (frozen on API)
+
+gxra-agent info
+gxra-agent register --hostname win-vm3
+gxra-agent learn --start-learning --interval 60 --count 6 --freeze
+gxra-agent status
 ```
 
-**New host** (creates a new `ent-…`):
+Config: `%APPDATA%\gxra-agent\config.json` (contains `entity_id` for Veeam webhooks).
 
-```powershell
-.\scripts\install-windows.ps1 -Hostname MY-WIN-HOST
-```
-
-**E2E (Git Bash):** `./scripts/gxra_e2e_windows.sh` or `scripts\gxra_e2e_windows.bat`
-
-Config: `%APPDATA%\gxra-agent\config.json`
-
-### Linux / Raspberry Pi (ARM64)
-
-Pi OS and Ubuntu ARM: see [`docs/RASPBERRY-PI-QUICKSTART.md`](docs/RASPBERRY-PI-QUICKSTART.md).
+### Linux
 
 ```bash
 python3 -m venv ~/.venv/gxra-agent
@@ -108,20 +102,6 @@ Invoke-RestMethod "$env:GXRA_API_URL/health"
 
 ---
 
-## Deployment and overhead
-
-The agent is **not** a daemon. Default pilot mode: **one `snapshot` per backup** (Veeam pre-freeze). Optional periodic timer for drift between backups.
-
-See [`docs/gxra-agent-deployment-modes.md`](docs/gxra-agent-deployment-modes.md) and run:
-
-```bash
-./scripts/benchmark-agent-overhead.sh
-```
-
-| Variable | Purpose |
-|----------|---------|
-| `GXRA_AGENT_TIER_MAX` | `0`–`2` — skip heavier collectors at lower tiers (`2` = full) |
-
 ## Veeam pre-freeze (optional)
 
 ```bat
@@ -137,22 +117,6 @@ exit /b 0
 ## MVP inventory
 
 **What is built vs what the demos prove:** [docs/MVP-INVENTORY.md](docs/MVP-INVENTORY.md)
-
-## Time-Warp proof of capability
-
-Linux-only CRIU proof scaffold (checkpoint + restore + GX-RA state link):
-
-- [docs/TIMEWARP-POC.md](docs/TIMEWARP-POC.md)
-- `sudo ./scripts/timewarp-criu-poc.sh capture`
-- `sudo GXRA_TIMEWARP_TARGET_ID=rt-timewarp-worker-service GXRA_TIMEWARP_SYSTEMD_UNIT=timewarp-worker.service GXRA_TIMEWARP_LVM_ORIGIN=/dev/vg_timewarp/lv_worker GXRA_TIMEWARP_MOUNT_POINTS=/srv/timewarp-worker ./scripts/timewarp-criu-poc.sh capture-set`
-- `sudo GXRA_TIMEWARP_TARGET_PROFILE=minimal ./scripts/timewarp-criu-poc.sh capture`
-- `sudo GXRA_TIMEWARP_KILL_ORIGINAL=1 ./scripts/timewarp-criu-poc.sh restore /tmp/gxra-timewarp-poc/<run-id>`
-
-The PoC now prefers a tiny C demo target when `cc` is available, supports a more conservative `minimal` target profile for restore retests, emits verbose CRIU diagnostics into the run directory, writes both a legacy `timewarp-manifest.json` and a product-shaped `recovery-set.json`, and can capture a first compound `systemd + LVM` boundary via `capture-set`. The first successful assurance-linked restore validation was completed on Ubuntu 24.04 with CRIU 4.2.
-
-Concrete lab target entry:
-
-- `docs/timewarp-ubuntu24-worker-target.json`
 
 ## Linux deploy + E2E demo
 
